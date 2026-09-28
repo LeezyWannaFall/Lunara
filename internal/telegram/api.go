@@ -19,9 +19,10 @@ type Chat struct {
 }
 
 type Message struct {
-	MessageID int64  `json:"message_id"`
-	Chat      Chat   `json:"chat"`
-	Text      string `json:"text"`
+	MessageID       int64  `json:"message_id"`
+	MessageThreadID int64  `json:"message_thread_id,omitempty"`
+	Chat            Chat   `json:"chat"`
+	Text            string `json:"text"`
 }
 
 type Update struct {
@@ -51,15 +52,18 @@ type API interface {
 	GetUpdates(context.Context, int64) ([]Update, error)
 	SendMessage(context.Context, int64, string) error
 	SendMessageWithButtons(context.Context, int64, string, [][]InlineButton) error
+	SendMessageToThread(context.Context, int64, int64, string) error
+	SendMessageWithButtonsToThread(context.Context, int64, int64, string, [][]InlineButton) error
 	AnswerCallback(context.Context, string) error
 }
 
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL              string
+	http                 *http.Client
+	notificationThreadID int64
 }
 
-func NewClient(token string, httpClient *http.Client, baseURL string) (*Client, error) {
+func NewClient(token string, httpClient *http.Client, baseURL string, threadIDs ...int64) (*Client, error) {
 	if strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("Telegram bot token is required")
 	}
@@ -69,7 +73,14 @@ func NewClient(token string, httpClient *http.Client, baseURL string) (*Client, 
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 40 * time.Second}
 	}
-	return &Client{baseURL: strings.TrimRight(baseURL, "/") + "/bot" + token, http: httpClient}, nil
+	var threadID int64
+	if len(threadIDs) > 0 {
+		threadID = threadIDs[0]
+	}
+	if threadID < 0 {
+		return nil, fmt.Errorf("Telegram thread ID must not be negative")
+	}
+	return &Client{baseURL: strings.TrimRight(baseURL, "/") + "/bot" + token, http: httpClient, notificationThreadID: threadID}, nil
 }
 
 type response[T any] struct {
@@ -169,25 +180,35 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64) ([]Update, error)
 }
 
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) error {
-	return c.SendMessageWithButtons(ctx, chatID, text, nil)
+	return c.SendMessageToThread(ctx, chatID, 0, text)
 }
 
 func (c *Client) SendMessageWithButtons(ctx context.Context, chatID int64, text string, buttons [][]InlineButton) error {
-	_, err := c.sendMessage(ctx, chatID, text, buttons)
+	return c.SendMessageWithButtonsToThread(ctx, chatID, 0, text, buttons)
+
+}
+func (c *Client) SendMessageToThread(ctx context.Context, chatID, threadID int64, text string) error {
+	return c.SendMessageWithButtonsToThread(ctx, chatID, threadID, text, nil)
+}
+func (c *Client) SendMessageWithButtonsToThread(ctx context.Context, chatID, threadID int64, text string, buttons [][]InlineButton) error {
+	_, err := c.sendMessage(ctx, chatID, threadID, text, buttons)
 	return err
 }
 
 func (c *Client) SendNotification(ctx context.Context, chatID int64, text string) (int64, error) {
-	message, err := c.sendMessage(ctx, chatID, text, nil)
+	message, err := c.sendMessage(ctx, chatID, c.notificationThreadID, text, nil)
 	return message.MessageID, err
 }
 
-func (c *Client) sendMessage(ctx context.Context, chatID int64, text string, buttons [][]InlineButton) (Message, error) {
+func (c *Client) sendMessage(ctx context.Context, chatID, threadID int64, text string, buttons [][]InlineButton) (Message, error) {
 	if text == "" || len([]rune(text)) > 4096 {
 		return Message{}, fmt.Errorf("Telegram message length is outside 1..4096")
 	}
 	request := map[string]any{
 		"chat_id": chatID, "text": text, "parse_mode": "HTML",
+	}
+	if threadID > 0 {
+		request["message_thread_id"] = threadID
 	}
 	if len(buttons) > 0 {
 		request["reply_markup"] = map[string]any{"inline_keyboard": buttons}

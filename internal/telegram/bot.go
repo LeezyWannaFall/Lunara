@@ -18,11 +18,12 @@ type Bot struct {
 	handler  *Handler
 	state    OffsetStore
 	chatID   int64
+	threadID int64
 	username string
 	logger   *slog.Logger
 }
 
-func NewBot(ctx context.Context, api API, handler *Handler, state OffsetStore, chatID int64, logger *slog.Logger) (*Bot, error) {
+func NewBot(ctx context.Context, api API, handler *Handler, state OffsetStore, chatID int64, logger *slog.Logger, threadIDs ...int64) (*Bot, error) {
 	if api == nil || handler == nil || state == nil {
 		return nil, fmt.Errorf("Telegram API, handler and state store are required")
 	}
@@ -36,7 +37,14 @@ func NewBot(ctx context.Context, api API, handler *Handler, state OffsetStore, c
 	if me.Username == "" {
 		return nil, fmt.Errorf("Telegram bot username is empty")
 	}
-	return &Bot{api: api, handler: handler, state: state, chatID: chatID, username: me.Username, logger: logger}, nil
+	var threadID int64
+	if len(threadIDs) > 0 {
+		threadID = threadIDs[0]
+	}
+	if threadID < 0 || threadID > 0 && chatID == 0 {
+		return nil, fmt.Errorf("Telegram topic requires a group chat")
+	}
+	return &Bot{api: api, handler: handler, state: state, chatID: chatID, threadID: threadID, username: me.Username, logger: logger}, nil
 }
 
 func (b *Bot) Run(ctx context.Context) error {
@@ -84,17 +92,24 @@ func (b *Bot) handleUpdate(ctx context.Context, update Update) error {
 	if chat.Type != "private" && (b.chatID == 0 || chat.ID != b.chatID) {
 		return nil
 	}
+	if chat.Type != "private" && b.threadID > 0 && update.Message.MessageThreadID != b.threadID {
+		return nil
+	}
+	threadID := int64(0)
+	if chat.Type != "private" {
+		threadID = update.Message.MessageThreadID
+	}
 	command, argument, directed := parseCommand(update.Message.Text, b.username)
 	if command == "changes" && directed {
-		return b.sendChanges(ctx, chat.ID, argument)
+		return b.sendChanges(ctx, chat.ID, threadID, argument)
 	}
 	messages, err := b.handler.Handle(ctx, update.Message.Text, b.username)
 	if err != nil {
 		b.logger.Error("Telegram command failed", "error", err, "chat_id", chat.ID)
-		return b.api.SendMessage(ctx, chat.ID, "Не удалось прочитать расписание. Попробуйте ещё раз позже.")
+		return b.api.SendMessageToThread(ctx, chat.ID, threadID, "Не удалось прочитать расписание. Попробуйте ещё раз позже.")
 	}
 	for _, message := range messages {
-		if err := b.api.SendMessage(ctx, chat.ID, message); err != nil {
+		if err := b.api.SendMessageToThread(ctx, chat.ID, threadID, message); err != nil {
 			return err
 		}
 	}
@@ -112,13 +127,20 @@ func (b *Bot) handleCallback(ctx context.Context, query *CallbackQuery) error {
 	if chat.Type != "private" && (b.chatID == 0 || chat.ID != b.chatID) {
 		return nil
 	}
+	if chat.Type != "private" && b.threadID > 0 && query.Message.MessageThreadID != b.threadID {
+		return nil
+	}
 	if !strings.HasPrefix(query.Data, "changes:") {
 		return nil
 	}
-	return b.sendChanges(ctx, chat.ID, strings.TrimPrefix(query.Data, "changes:"))
+	threadID := int64(0)
+	if chat.Type != "private" {
+		threadID = query.Message.MessageThreadID
+	}
+	return b.sendChanges(ctx, chat.ID, threadID, strings.TrimPrefix(query.Data, "changes:"))
 }
 
-func (b *Bot) sendChanges(ctx context.Context, chatID int64, argument string) error {
+func (b *Bot) sendChanges(ctx context.Context, chatID, threadID int64, argument string) error {
 	messages, next, err := b.handler.Changes(ctx, argument)
 	if err != nil {
 		return err
@@ -126,10 +148,10 @@ func (b *Bot) sendChanges(ctx context.Context, chatID int64, argument string) er
 	for i, message := range messages {
 		if i == len(messages)-1 && next > 0 {
 			buttons := [][]InlineButton{{{Text: "Более ранние изменения", CallbackData: fmt.Sprintf("changes:%d", next)}}}
-			if err := b.api.SendMessageWithButtons(ctx, chatID, message, buttons); err != nil {
+			if err := b.api.SendMessageWithButtonsToThread(ctx, chatID, threadID, message, buttons); err != nil {
 				return err
 			}
-		} else if err := b.api.SendMessage(ctx, chatID, message); err != nil {
+		} else if err := b.api.SendMessageToThread(ctx, chatID, threadID, message); err != nil {
 			return err
 		}
 	}

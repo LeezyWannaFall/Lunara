@@ -66,3 +66,23 @@ func TestClientParsesTelegramRetryAfter(t *testing.T) {
 		t.Fatalf("delay=%v ok=%v err=%v", delay, ok, err)
 	}
 }
+
+func TestClientSendsToTopic(t *testing.T) {
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"message_thread_id":77`) {
+			t.Fatalf("topic missing: %s", body)
+		}
+		return jsonResponse(`{"ok":true,"result":{"message_id":99,"message_thread_id":77,"chat":{"id":-100,"type":"supergroup"},"text":"hello"}}`), nil
+	})
+	client, err := NewClient("secret", &http.Client{Transport: transport}, "https://telegram.test", 77)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SendMessageToThread(context.Background(), -100, 77, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.SendNotification(context.Background(), -100, "hello"); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -21,6 +21,7 @@ type Config struct {
 	ShutdownTimeout      time.Duration
 	TelegramToken        string
 	TelegramChatID       int64
+	TelegramThreadID     int64
 	WatchWeeks           int
 	WatchInterval        time.Duration
 	ConfirmationDelay    time.Duration
@@ -47,6 +48,15 @@ func Load(getenv func(string) string) (Config, error) {
 		c.TelegramChatID, err = strconv.ParseInt(raw, 10, 64)
 		if err != nil || c.TelegramChatID == 0 {
 			return c, fmt.Errorf("TELEGRAM_CHAT_ID must be a non-zero integer")
+		}
+	}
+	if raw := strings.TrimSpace(getenv("TELEGRAM_THREAD_ID")); raw != "" {
+		c.TelegramThreadID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || c.TelegramThreadID <= 0 {
+			return c, fmt.Errorf("TELEGRAM_THREAD_ID must be a positive integer")
+		}
+		if c.TelegramChatID == 0 {
+			return c, fmt.Errorf("TELEGRAM_THREAD_ID requires TELEGRAM_CHAT_ID")
 		}
 	}
 	c.BootstrapWeeks, err = strconv.Atoi(value("BOOTSTRAP_WEEKS", "2"))

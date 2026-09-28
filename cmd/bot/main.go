@@ -67,14 +67,14 @@ func run() int {
 		logger.Error("Telegram handler initialization failed", "error", err)
 		return 1
 	}
-	telegramAPI, err := telegrambot.NewClient(cfg.TelegramToken, nil, "")
+	telegramAPI, err := telegrambot.NewClient(cfg.TelegramToken, nil, "", cfg.TelegramThreadID)
 	if err != nil {
 		cancelStartup()
 		store.Close()
 		logger.Error("Telegram client initialization failed", "error", err)
 		return 1
 	}
-	bot, err := telegrambot.NewBot(startupCtx, telegramAPI, handler, store, cfg.TelegramChatID, logger.With("component", "telegram"))
+	bot, err := telegrambot.NewBot(startupCtx, telegramAPI, handler, store, cfg.TelegramChatID, logger.With("component", "telegram"), cfg.TelegramThreadID)
 	cancelStartup()
 	if err != nil {
 		store.Close()
