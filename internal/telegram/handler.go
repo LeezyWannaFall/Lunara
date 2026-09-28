@@ -20,8 +20,13 @@ type ScheduleRepository interface {
 	ChangeSets(context.Context, int64, int64, int) ([]changeModel.ChangeSet, error)
 }
 
+type ExamRepository interface {
+	GetExams(context.Context, int64) (schedule.ExamSchedule, error)
+}
+
 type Handler struct {
 	repo     ScheduleRepository
+	exams    ExamRepository
 	calendar schedule.Calendar
 	groupID  int64
 	now      func() time.Time
@@ -34,7 +39,8 @@ func NewHandler(repo ScheduleRepository, calendar schedule.Calendar, groupID int
 	if err := calendar.Validate(); err != nil {
 		return nil, err
 	}
-	return &Handler{repo: repo, calendar: calendar, groupID: groupID, now: time.Now}, nil
+	exams, _ := repo.(ExamRepository)
+	return &Handler{repo: repo, exams: exams, calendar: calendar, groupID: groupID, now: time.Now}, nil
 }
 
 func (h *Handler) Handle(ctx context.Context, text, botUsername string) ([]string, error) {
@@ -69,10 +75,80 @@ func (h *Handler) Handle(ctx context.Context, text, botUsername string) ([]strin
 		messages, _, err := h.Changes(ctx, argument)
 		return messages, err
 	case "exams":
-		return []string{"Просмотр экзаменов пока не подключён. Источник: https://study.miigaik.ru/exam/"}, nil
+		return h.examSchedule(ctx)
 	default:
 		return []string{"Неизвестная команда. Используйте /help."}, nil
 	}
+}
+
+func (h *Handler) examSchedule(ctx context.Context) ([]string, error) {
+	if h.exams == nil {
+		return []string{"Расписание экзаменов ещё не загружено."}, nil
+	}
+	value, err := h.exams.GetExams(ctx, h.groupID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return []string{"Расписание экзаменов ещё не загружено."}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if value.Status == schedule.Unpublished {
+		return []string{fmt.Sprintf("Расписание экзаменов пока не опубликовано. Последняя проверка: %s.", checked(value.CheckedAt, h.calendar.Location))}, nil
+	}
+	header := fmt.Sprintf("<b>Экзамены · группа %d</b>\nПроверено: %s", h.groupID, checked(value.CheckedAt, h.calendar.Location))
+	result := []string{}
+	current := header
+	for _, exam := range value.Exams {
+		block := "\n\n" + formatExam(exam)
+		if len([]rune(current+block)) > 4096 {
+			result = append(result, current)
+			current = header + " (продолжение)" + block
+		} else {
+			current += block
+		}
+	}
+	return append(result, current), nil
+}
+
+func (h *Handler) ReminderTomorrow(ctx context.Context, now time.Time) ([]string, error) {
+	messages, err := h.day(ctx, schedule.LocalDate(now, h.calendar.Location).AddDate(0, 0, 1))
+	if len(messages) > 0 {
+		messages[0] = "<b>Расписание на завтра</b>\n\n" + messages[0]
+	}
+	return messages, err
+}
+func (h *Handler) ReminderNextWeek(ctx context.Context, now time.Time) ([]string, error) {
+	messages, err := h.week(ctx, schedule.Monday(now, h.calendar.Location).AddDate(0, 0, 7))
+	if len(messages) > 0 {
+		messages[0] = "<b>Расписание на следующую неделю</b>\n\n" + messages[0]
+	}
+	return messages, err
+}
+
+func formatExam(exam schedule.Exam) string {
+	line := fmt.Sprintf("<b>%s, %s · %s</b>\n%s", weekday(exam.Date), exam.Date.Format("02.01.2006"), minute(exam.StartMinute), html.EscapeString(clip(exam.Subject, 200)))
+	meta := []string{}
+	if exam.Kind != "" {
+		meta = append(meta, html.EscapeString(clip(exam.Kind, 60)))
+	}
+	if len(exam.Teachers) > 0 {
+		meta = append(meta, html.EscapeString(strings.Join(exam.Teachers, ", ")))
+	}
+	if len(exam.Rooms) > 0 {
+		rooms := make([]string, 0, len(exam.Rooms))
+		for _, room := range exam.Rooms {
+			v := room.Name
+			if room.Building != "" {
+				v += " (" + room.Building + ")"
+			}
+			rooms = append(rooms, html.EscapeString(v))
+		}
+		meta = append(meta, strings.Join(rooms, ", "))
+	}
+	if len(meta) > 0 {
+		return line + "\n" + strings.Join(meta, " · ")
+	}
+	return line
 }
 
 // Changes returns one history page and the cursor for the next older page.

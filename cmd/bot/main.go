@@ -93,12 +93,33 @@ func run() int {
 		logger.Error("delivery initialization failed", "error", err)
 		return 1
 	}
+	examWatcher, err := scheduler.NewExamWatcher(source, store, cfg.GroupID, cfg.ExamInterval, logger.With("component", "exams"))
+	if err != nil {
+		store.Close()
+		logger.Error("exam watcher initialization failed", "error", err)
+		return 1
+	}
+	reminders, err := scheduler.NewReminderScheduler(store, handler, cfg.TelegramChatID, cfg.Calendar.Location, cfg.TomorrowReminder, cfg.WeeklyReminder, cfg.ReminderPollInterval, logger.With("component", "reminders"))
+	if err != nil {
+		store.Close()
+		logger.Error("reminder scheduler initialization failed", "error", err)
+		return 1
+	}
+	reminderDelivery, err := scheduler.NewReminderDeliveryWorker(store, telegramAPI, cfg.DeliveryPollInterval, logger.With("component", "reminder_delivery"))
+	if err != nil {
+		store.Close()
+		logger.Error("reminder delivery initialization failed", "error", err)
+		return 1
+	}
 	if ctx.Err() == nil {
-		logger.Info("application started", "stage", 6, "timezone", cfg.Calendar.Location.String(), "cached_weeks", report.Cached, "inserted_weeks", report.Inserted)
+		logger.Info("application started", "stage", 7, "timezone", cfg.Calendar.Location.String(), "cached_weeks", report.Cached, "inserted_weeks", report.Inserted)
 		var workers sync.WaitGroup
-		workers.Add(2)
+		workers.Add(5)
 		go func() { defer workers.Done(); watcher.Run(ctx) }()
 		go func() { defer workers.Done(); delivery.Run(ctx) }()
+		go func() { defer workers.Done(); examWatcher.Run(ctx) }()
+		go func() { defer workers.Done(); reminders.Run(ctx) }()
+		go func() { defer workers.Done(); reminderDelivery.Run(ctx) }()
 		if err := bot.Run(ctx); err != nil && ctx.Err() == nil {
 			logger.Error("Telegram polling stopped", "error", err)
 			stop()

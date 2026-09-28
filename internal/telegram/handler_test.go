@@ -14,8 +14,16 @@ import (
 )
 
 type fakeRepo struct {
-	weeks   map[string]schedule.Schedule
-	history []changes.ChangeSet
+	weeks        map[string]schedule.Schedule
+	history      []changes.ChangeSet
+	examSchedule *schedule.ExamSchedule
+}
+
+func (f fakeRepo) GetExams(context.Context, int64) (schedule.ExamSchedule, error) {
+	if f.examSchedule == nil {
+		return schedule.ExamSchedule{}, storage.ErrNotFound
+	}
+	return *f.examSchedule, nil
 }
 
 func (f fakeRepo) GetWeek(_ context.Context, _ int64, date time.Time) (schedule.Schedule, error) {
@@ -118,6 +126,23 @@ func TestRepositoryErrorsAreReturned(t *testing.T) {
 	h.repo = errorRepo{}
 	if _, err := h.Handle(context.Background(), "/week", "bot"); err == nil {
 		t.Fatal("repository error hidden")
+	}
+}
+
+func TestExamsPublishedAndUnpublished(t *testing.T) {
+	h := testHandler(t, nil)
+	loc := h.calendar.Location
+	published := schedule.ExamSchedule{GroupID: 1306, Status: schedule.Published, CheckedAt: time.Now(), Exams: []schedule.Exam{{Date: time.Date(2026, 1, 12, 0, 0, 0, 0, loc), StartMinute: 600, Subject: "Math <exam>", Kind: "Экзамен", Teachers: []string{"A & B"}}}}
+	h.exams = fakeRepo{examSchedule: &published}
+	messages, err := h.Handle(context.Background(), "/exams", "bot")
+	if err != nil || !strings.Contains(messages[0], "Math &lt;exam&gt;") || !strings.Contains(messages[0], "A &amp; B") {
+		t.Fatalf("unexpected published exams: %v %v", messages, err)
+	}
+	unpublished := schedule.ExamSchedule{GroupID: 1306, Status: schedule.Unpublished, CheckedAt: time.Now(), Exams: []schedule.Exam{}}
+	h.exams = fakeRepo{examSchedule: &unpublished}
+	messages, err = h.Handle(context.Background(), "/exams", "bot")
+	if err != nil || !strings.Contains(messages[0], "пока не опубликовано") {
+		t.Fatalf("unexpected unpublished exams: %v %v", messages, err)
 	}
 }
 

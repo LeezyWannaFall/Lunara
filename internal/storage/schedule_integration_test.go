@@ -120,7 +120,7 @@ func count(t *testing.T, pool *pgxpool.Pool, table string) int {
 func TestPostgresMigrations(t *testing.T) {
 	_, pool, provider := database(t)
 	ctx := context.Background()
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 4 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 5 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if result, err := provider.Up(ctx); err != nil || len(result) != 0 {
@@ -129,32 +129,67 @@ func TestPostgresMigrations(t *testing.T) {
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 3 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 4 {
 		t.Fatalf("down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 2 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 3 {
 		t.Fatalf("second down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 2 {
 		t.Fatalf("third down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
 		t.Fatalf("fourth down version=%d err=%v", version, err)
+	}
+	if _, err := provider.Down(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+		t.Fatalf("fifth down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if count(t, pool, "schedule_heads") != 0 {
 		t.Fatal("new tables not empty")
+	}
+}
+
+func TestPostgresExamsAndReminderDeduplication(t *testing.T) {
+	store, _, _ := database(t)
+	ctx := context.Background()
+	value := schedule.ExamSchedule{GroupID: 1306, Status: schedule.Published, CheckedAt: time.Now().UTC().Truncate(time.Microsecond), NormalizationVersion: 1, Hash: strings.Repeat("a", 64), Exams: []schedule.Exam{{Date: date(t, "2026-01-12"), StartMinute: 600, Subject: "Математика", Kind: "Экзамен"}}}
+	if err := store.SaveExams(ctx, value); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.GetExams(ctx, 1306)
+	if err != nil || !reflect.DeepEqual(got, value) {
+		t.Fatalf("exam roundtrip=%+v err=%v", got, err)
+	}
+	period := date(t, "2026-09-27")
+	created, err := store.EnqueueReminder(ctx, -100, "next_week", period, "text")
+	if err != nil || !created {
+		t.Fatalf("enqueue=%v %v", created, err)
+	}
+	created, err = store.EnqueueReminder(ctx, -100, "next_week", period, "text")
+	if err != nil || created {
+		t.Fatalf("duplicate=%v %v", created, err)
+	}
+	delivery, err := store.ClaimReminder(ctx, time.Now().UTC().Add(time.Minute), time.Minute)
+	if err != nil || delivery.Text != "text" {
+		t.Fatalf("claim=%+v %v", delivery, err)
+	}
+	if err := store.CompleteReminder(ctx, delivery.ID, 42, time.Now()); err != nil {
+		t.Fatal(err)
 	}
 }
 

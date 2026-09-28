@@ -24,6 +24,10 @@ type Config struct {
 	WatchInterval        time.Duration
 	ConfirmationDelay    time.Duration
 	DeliveryPollInterval time.Duration
+	ExamInterval         time.Duration
+	ReminderPollInterval time.Duration
+	TomorrowReminder     bool
+	WeeklyReminder       bool
 }
 
 // Load accepts an environment reader to keep configuration tests isolated.
@@ -63,6 +67,22 @@ func Load(getenv func(string) string) (Config, error) {
 	c.DeliveryPollInterval, err = time.ParseDuration(value("DELIVERY_POLL_INTERVAL", "5s"))
 	if err != nil || c.DeliveryPollInterval <= 0 {
 		return c, fmt.Errorf("DELIVERY_POLL_INTERVAL must be a positive duration")
+	}
+	c.ExamInterval, err = time.ParseDuration(value("EXAM_INTERVAL", "24h"))
+	if err != nil || c.ExamInterval <= 0 {
+		return c, fmt.Errorf("EXAM_INTERVAL must be a positive duration")
+	}
+	c.ReminderPollInterval, err = time.ParseDuration(value("REMINDER_POLL_INTERVAL", "1m"))
+	if err != nil || c.ReminderPollInterval <= 0 {
+		return c, fmt.Errorf("REMINDER_POLL_INTERVAL must be a positive duration")
+	}
+	c.TomorrowReminder, err = strconv.ParseBool(value("REMINDER_TOMORROW_ENABLED", "false"))
+	if err != nil {
+		return c, fmt.Errorf("REMINDER_TOMORROW_ENABLED must be true or false")
+	}
+	c.WeeklyReminder, err = strconv.ParseBool(value("REMINDER_WEEKLY_ENABLED", "false"))
+	if err != nil {
+		return c, fmt.Errorf("REMINDER_WEEKLY_ENABLED must be true or false")
 	}
 	c.StartupTimeout, err = time.ParseDuration(value("STARTUP_TIMEOUT", "2m"))
 	if err != nil || c.StartupTimeout <= 0 {

@@ -60,3 +60,22 @@ type Schedule struct {
 	NormalizationVersion int
 	Hash                 string
 }
+
+// Exam is independent from alternating teaching weeks.
+type Exam struct {
+	Date        time.Time
+	StartMinute int
+	Subject     string
+	Kind        string
+	Teachers    []string
+	Rooms       []Room
+}
+
+type ExamSchedule struct {
+	GroupID              int64
+	Exams                []Exam
+	Status               Status
+	CheckedAt            time.Time
+	NormalizationVersion int
+	Hash                 string
+}
