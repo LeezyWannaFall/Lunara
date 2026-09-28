@@ -1,9 +1,28 @@
+x-database-environment: &database-environment
+  # PG* settings avoid URL-escaping the password interpolated by Compose.
+  PGHOST: postgres
+  PGPORT: "5432"
+  PGUSER: ${POSTGRES_USER:-lunara}
+  PGDATABASE: ${POSTGRES_DB:-lunara}
+  PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+  PGSSLMODE: disable
+  DATABASE_URL: ""
+
 services:
   bot:
     build: .
     env_file: .env
+    environment: *database-environment
     init: true
     stop_grace_period: 25s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  migrate:
+    build: .
+    entrypoint: ["/usr/local/bin/migrate"]
+    command: ["up"]
+    environment: *database-environment
     depends_on:
       postgres:
         condition: service_healthy
@@ -16,7 +35,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB""]
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 5s
       timeout: 3s
       retries: 10
