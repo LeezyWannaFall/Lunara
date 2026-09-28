@@ -12,6 +12,9 @@ import (
 
 type Config struct {
 	GroupID         int64
+	DatabaseURL     string
+	BootstrapWeeks  int
+	StartupTimeout  time.Duration
 	Calendar        schedule.Calendar
 	LogLevel        slog.Level
 	ShutdownTimeout time.Duration
@@ -26,7 +29,16 @@ func Load(getenv func(string) string) (Config, error) {
 		}
 		return fallback
 	}
+	c.DatabaseURL = strings.TrimSpace(getenv("DATABASE_URL"))
 	var err error
+	c.BootstrapWeeks, err = strconv.Atoi(value("BOOTSTRAP_WEEKS", "2"))
+	if err != nil || c.BootstrapWeeks < 1 || c.BootstrapWeeks > 12 {
+		return c, fmt.Errorf("BOOTSTRAP_WEEKS must be between 1 and 12")
+	}
+	c.StartupTimeout, err = time.ParseDuration(value("STARTUP_TIMEOUT", "2m"))
+	if err != nil || c.StartupTimeout <= 0 {
+		return c, fmt.Errorf("STARTUP_TIMEOUT must be a positive duration")
+	}
 	c.GroupID, err = strconv.ParseInt(value("GROUP_ID", "1306"), 10, 64)
 	if err != nil || c.GroupID <= 0 {
 		return c, fmt.Errorf("GROUP_ID must be a positive integer")
