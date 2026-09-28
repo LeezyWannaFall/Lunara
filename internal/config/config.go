@@ -18,6 +18,8 @@ type Config struct {
 	Calendar        schedule.Calendar
 	LogLevel        slog.Level
 	ShutdownTimeout time.Duration
+	TelegramToken   string
+	TelegramChatID  int64
 }
 
 // Load accepts an environment reader to keep configuration tests isolated.
@@ -30,7 +32,14 @@ func Load(getenv func(string) string) (Config, error) {
 		return fallback
 	}
 	c.DatabaseURL = strings.TrimSpace(getenv("DATABASE_URL"))
+	c.TelegramToken = strings.TrimSpace(getenv("TELEGRAM_BOT_TOKEN"))
 	var err error
+	if raw := strings.TrimSpace(getenv("TELEGRAM_CHAT_ID")); raw != "" {
+		c.TelegramChatID, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || c.TelegramChatID == 0 {
+			return c, fmt.Errorf("TELEGRAM_CHAT_ID must be a non-zero integer")
+		}
+	}
 	c.BootstrapWeeks, err = strconv.Atoi(value("BOOTSTRAP_WEEKS", "2"))
 	if err != nil || c.BootstrapWeeks < 1 || c.BootstrapWeeks > 12 {
 		return c, fmt.Errorf("BOOTSTRAP_WEEKS must be between 1 and 12")

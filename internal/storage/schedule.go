@@ -19,6 +19,8 @@ import (
 
 var ErrNotFound = errors.New("schedule week not stored")
 
+const telegramOffsetKey = "telegram_update_offset"
+
 type Store struct {
 	pool     *pgxpool.Pool
 	calendar schedule.Calendar
@@ -35,6 +37,32 @@ func New(pool *pgxpool.Pool, calendar schedule.Calendar) (*Store, error) {
 }
 
 func (s *Store) Close() { s.pool.Close() }
+
+// TelegramOffset is the first update ID that has not been processed yet.
+func (s *Store) TelegramOffset(ctx context.Context) (int64, error) {
+	var offset int64
+	err := s.pool.QueryRow(ctx, `SELECT value FROM bot_state WHERE key=$1`, telegramOffsetKey).Scan(&offset)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read Telegram offset: %w", err)
+	}
+	return offset, nil
+}
+
+// SaveTelegramOffset only moves the cursor forward, making repeated saves safe.
+func (s *Store) SaveTelegramOffset(ctx context.Context, offset int64) error {
+	if offset < 0 {
+		return fmt.Errorf("Telegram offset must not be negative")
+	}
+	_, err := s.pool.Exec(ctx, `INSERT INTO bot_state (key,value) VALUES ($1,$2)
+ ON CONFLICT (key) DO UPDATE SET value=GREATEST(bot_state.value,EXCLUDED.value), updated_at=now()`, telegramOffsetKey, offset)
+	if err != nil {
+		return fmt.Errorf("save Telegram offset: %w", err)
+	}
+	return nil
+}
 
 // GetWeek accepts any date in a week. A missing snapshot differs from an
 // explicitly unpublished week. Read failures never return partial schedules.

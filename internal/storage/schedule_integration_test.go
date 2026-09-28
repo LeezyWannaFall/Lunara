@@ -120,7 +120,7 @@ func count(t *testing.T, pool *pgxpool.Pool, table string) int {
 func TestPostgresMigrations(t *testing.T) {
 	_, pool, provider := database(t)
 	ctx := context.Background()
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 2 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if result, err := provider.Up(ctx); err != nil || len(result) != 0 {
@@ -129,14 +129,37 @@ func TestPostgresMigrations(t *testing.T) {
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
 		t.Fatalf("down version=%d err=%v", version, err)
+	}
+	if _, err := provider.Down(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+		t.Fatalf("second down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if count(t, pool, "schedule_heads") != 0 {
 		t.Fatal("new tables not empty")
+	}
+}
+
+func TestTelegramOffsetPersistsAndOnlyMovesForward(t *testing.T) {
+	store, _, _ := database(t)
+	ctx := context.Background()
+	if offset, err := store.TelegramOffset(ctx); err != nil || offset != 0 {
+		t.Fatalf("initial offset=%d err=%v", offset, err)
+	}
+	if err := store.SaveTelegramOffset(ctx, 42); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveTelegramOffset(ctx, 12); err != nil {
+		t.Fatal(err)
+	}
+	if offset, err := store.TelegramOffset(ctx); err != nil || offset != 42 {
+		t.Fatalf("persisted offset=%d err=%v", offset, err)
 	}
 }
 func TestPostgresRoundTripAndBaselinePreservation(t *testing.T) {
