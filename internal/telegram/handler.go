@@ -143,11 +143,7 @@ func formatExam(exam schedule.Exam) string {
 	if len(exam.Rooms) > 0 {
 		rooms := make([]string, 0, len(exam.Rooms))
 		for _, room := range exam.Rooms {
-			v := formatRoom(room)
-			if room.Building != "" {
-				v += " (" + html.EscapeString(room.Building) + ")"
-			}
-			rooms = append(rooms, v)
+			rooms = append(rooms, formatRoom(room))
 		}
 		meta = append(meta, "📍 "+strings.Join(rooms, ", "))
 	}
@@ -430,9 +426,6 @@ func formatLesson(lesson schedule.Lesson) string {
 		rooms := make([]string, 0, min(len(lesson.Rooms), 3))
 		for _, room := range lesson.Rooms[:min(len(lesson.Rooms), 3)] {
 			value := formatRoom(room)
-			if room.Building != "" {
-				value += " (" + html.EscapeString(clip(room.Building, 40)) + ")"
-			}
 			rooms = append(rooms, value)
 		}
 		if len(lesson.Rooms) > 3 {
@@ -449,11 +442,14 @@ func (h *Handler) help() string {
 
 func formatRoom(room schedule.Room) string {
 	name := html.EscapeString(clip(room.Name, 60))
+	if room.Building != "" {
+		name += " (" + html.EscapeString(clip(room.Building, 60)) + ")"
+	}
 	parsed, err := url.Parse(room.MapURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "map.miigaik.ru" || parsed.User != nil {
 		return name
 	}
-	return `<a href="` + html.EscapeString(parsed.String()) + `">` + name + `</a>`
+	return name + ` · <a href="` + html.EscapeString(parsed.String()) + `">Посмотреть на карте</a>`
 }
 
 func sameDate(a, b time.Time, loc *time.Location) bool {

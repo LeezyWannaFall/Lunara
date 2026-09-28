@@ -88,7 +88,7 @@ func TestCommandsAndHTMLFormatting(t *testing.T) {
 	}
 	messages, _ := h.Handle(context.Background(), "/today@lunarabot", "LunaraBot")
 	joined := strings.Join(messages, "\n")
-	if !strings.Contains(joined, "📅 <b>Понедельник, 28 сентября 2026</b>") || !strings.Contains(joined, "⏰ <b>2 пара · 10:00–11:30</b>") || !strings.Contains(joined, "📚 Math &lt;advanced&gt;") || !strings.Contains(joined, "👤 A &amp; B") || !strings.Contains(joined, `📍 <a href="https://map.miigaik.ru/#id=101">101</a> (A)`) {
+	if !strings.Contains(joined, "📅 <b>Понедельник, 28 сентября 2026</b>") || !strings.Contains(joined, "⏰ <b>2 пара · 10:00–11:30</b>") || !strings.Contains(joined, "📚 Math &lt;advanced&gt;") || !strings.Contains(joined, "👤 A &amp; B") || !strings.Contains(joined, `📍 101 (A) · <a href="https://map.miigaik.ru/#id=101">Посмотреть на карте</a>`) {
 		t.Fatalf("HTML not escaped: %s", joined)
 	}
 	help, _ := h.Handle(context.Background(), "/help", "bot")
