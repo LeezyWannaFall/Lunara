@@ -58,11 +58,11 @@ func (h *Handler) Handle(ctx context.Context, text, botUsername string) ([]strin
 		return h.day(ctx, schedule.LocalDate(now, h.calendar.Location).AddDate(0, 0, 1))
 	case "day":
 		if argument == "" {
-			return []string{"Укажите дату: <code>/day 28.09.2026</code> или <code>/day 2026-09-28</code>."}, nil
+			return []string{"📅 <b>Расписание на выбранный день</b>\n\nУкажите дату:\n<code>/day 28.09.2026</code>\nили <code>/day 2026-09-28</code>"}, nil
 		}
 		date, err := parseUserDate(argument, h.calendar.Location)
 		if err != nil {
-			return []string{"Не удалось распознать дату. Используйте <code>ДД.ММ.ГГГГ</code> или <code>YYYY-MM-DD</code>."}, nil
+			return []string{"⚠️ <b>Не удалось распознать дату</b>\n\nИспользуйте формат <code>ДД.ММ.ГГГГ</code> или <code>YYYY-MM-DD</code>."}, nil
 		}
 		return h.day(ctx, date)
 	case "week":
@@ -77,25 +77,25 @@ func (h *Handler) Handle(ctx context.Context, text, botUsername string) ([]strin
 	case "exams":
 		return h.examSchedule(ctx)
 	default:
-		return []string{"Неизвестная команда. Используйте /help."}, nil
+		return []string{"🤔 <b>Неизвестная команда</b>\n\nСписок доступных команд: /help"}, nil
 	}
 }
 
 func (h *Handler) examSchedule(ctx context.Context) ([]string, error) {
 	if h.exams == nil {
-		return []string{"Расписание экзаменов ещё не загружено."}, nil
+		return []string{"⏳ <b>Экзамены ещё загружаются</b>\n\nПопробуйте открыть /exams немного позже."}, nil
 	}
 	value, err := h.exams.GetExams(ctx, h.groupID)
 	if errors.Is(err, storage.ErrNotFound) {
-		return []string{"Расписание экзаменов ещё не загружено."}, nil
+		return []string{"⏳ <b>Экзамены ещё загружаются</b>\n\nПопробуйте открыть /exams немного позже."}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	if value.Status == schedule.Unpublished {
-		return []string{fmt.Sprintf("Расписание экзаменов пока не опубликовано. Последняя проверка: %s.", checked(value.CheckedAt, h.calendar.Location))}, nil
+		return []string{fmt.Sprintf("🎓 <b>Экзамены</b>\n\nРасписание пока не опубликовано.\n🕘 Проверено: %s", checked(value.CheckedAt, h.calendar.Location))}, nil
 	}
-	header := fmt.Sprintf("<b>Экзамены · группа %d</b>\nПроверено: %s", h.groupID, checked(value.CheckedAt, h.calendar.Location))
+	header := fmt.Sprintf("🎓 <b>Экзамены · группа %d</b>\n🕘 Проверено: %s", h.groupID, checked(value.CheckedAt, h.calendar.Location))
 	result := []string{}
 	current := header
 	for _, exam := range value.Exams {
@@ -126,13 +126,13 @@ func (h *Handler) ReminderNextWeek(ctx context.Context, now time.Time) ([]string
 }
 
 func formatExam(exam schedule.Exam) string {
-	line := fmt.Sprintf("<b>%s, %s · %s</b>\n%s", weekday(exam.Date), exam.Date.Format("02.01.2006"), minute(exam.StartMinute), html.EscapeString(clip(exam.Subject, 200)))
+	line := fmt.Sprintf("📅 <b>%s, %s</b>\n⏰ <b>%s</b>\n📚 %s", weekdayTitle(exam.Date), humanDate(exam.Date), minute(exam.StartMinute), html.EscapeString(clip(exam.Subject, 200)))
 	meta := []string{}
 	if exam.Kind != "" {
-		meta = append(meta, html.EscapeString(clip(exam.Kind, 60)))
+		meta = append(meta, "📝 "+html.EscapeString(clip(exam.Kind, 60)))
 	}
 	if len(exam.Teachers) > 0 {
-		meta = append(meta, html.EscapeString(strings.Join(exam.Teachers, ", ")))
+		meta = append(meta, "👤 "+html.EscapeString(strings.Join(exam.Teachers, ", ")))
 	}
 	if len(exam.Rooms) > 0 {
 		rooms := make([]string, 0, len(exam.Rooms))
@@ -143,10 +143,10 @@ func formatExam(exam schedule.Exam) string {
 			}
 			rooms = append(rooms, html.EscapeString(v))
 		}
-		meta = append(meta, strings.Join(rooms, ", "))
+		meta = append(meta, "📍 "+strings.Join(rooms, ", "))
 	}
 	if len(meta) > 0 {
-		return line + "\n" + strings.Join(meta, " · ")
+		return line + "\n" + strings.Join(meta, "\n")
 	}
 	return line
 }
@@ -157,7 +157,7 @@ func (h *Handler) Changes(ctx context.Context, argument string) ([]string, int64
 	if argument != "" {
 		value, err := strconv.ParseInt(argument, 10, 64)
 		if err != nil || value <= 0 {
-			return []string{"Используйте <code>/changes</code> без аргументов."}, 0, nil
+			return []string{"⚠️ Используйте <code>/changes</code> без аргументов."}, 0, nil
 		}
 		before = value
 	}
@@ -166,7 +166,7 @@ func (h *Handler) Changes(ctx context.Context, argument string) ([]string, int64
 		return nil, 0, err
 	}
 	if len(sets) == 0 {
-		return []string{"Подтверждённых изменений пока нет."}, 0, nil
+		return []string{"✨ <b>Изменений пока нет</b>\n\nПодтверждённые изменения расписания появятся здесь."}, 0, nil
 	}
 	set := sets[0]
 	texts := formatChangeSet(set, h.calendar.Location)
@@ -178,13 +178,13 @@ func (h *Handler) Changes(ctx context.Context, argument string) ([]string, int64
 }
 
 func formatChangeSet(set changeModel.ChangeSet, loc *time.Location) []string {
-	header := fmt.Sprintf("<b>Изменения на сайте расписания</b>\n%s", set.DetectedAt.In(loc).Format("02.01.2006 15:04"))
+	header := fmt.Sprintf("🔔 <b>Изменения в расписании</b>\n🕘 %s", set.DetectedAt.In(loc).Format("02.01.2006 · 15:04"))
 	if set.Kind == changeModel.FirstPublication {
 		dates := make([]string, len(set.WeekStarts))
 		for i, week := range set.WeekStarts {
 			dates[i] = week.Format("02.01.2006")
 		}
-		return []string{header + "\n\nОпубликовано расписание на недели: " + strings.Join(dates, ", ") + "."}
+		return []string{header + "\n\n✅ Опубликовано расписание на недели:\n" + strings.Join(dates, ", ")}
 	}
 	result := []string{}
 	current := header
@@ -214,7 +214,7 @@ func NotificationText(set changeModel.ChangeSet, loc *time.Location) string {
 	for _, change := range set.Changes {
 		counts[change.Kind]++
 	}
-	return fmt.Sprintf("<b>Изменения на сайте расписания</b>\n%s\n\nДобавлено: %d · изменено: %d · убрано: %d\nПодробности: /changes",
+	return fmt.Sprintf("🔔 <b>Изменения в расписании</b>\n🕘 %s\n\n➕ Добавлено: %d\n✏️ Изменено: %d\n➖ Убрано: %d\n\nПодробности: /changes",
 		set.DetectedAt.In(loc).Format("02.01.2006 15:04"), counts[changeModel.Added], counts[changeModel.Modified], counts[changeModel.Removed])
 }
 
@@ -230,19 +230,19 @@ func compactChange(change changeModel.Change) string {
 func formatChange(change changeModel.Change) string {
 	mark := ""
 	if change.Ambiguous {
-		mark = "\n<i>Связь между занятиями неоднозначна.</i>"
+		mark = "\n\n⚠️ <i>Связь между занятиями неоднозначна.</i>"
 	}
 	switch change.Kind {
 	case changeModel.Added:
-		return "➕ <b>Добавлено</b>\n" + formatLesson(*change.New) + mark
+		return "➕ <b>Добавлено занятие</b>\n\n" + formatLesson(*change.New) + mark
 	case changeModel.Removed:
-		return "➖ <b>Убрано из расписания</b>\n" + formatLesson(*change.Old) + mark
+		return "➖ <b>Убрано из расписания</b>\n\n" + formatLesson(*change.Old) + mark
 	case changeModel.Modified:
 		labels := make([]string, len(change.Fields))
 		for i, field := range change.Fields {
 			labels[i] = fieldName(field)
 		}
-		return "✏️ <b>Изменено: " + strings.Join(labels, ", ") + "</b>\nБыло:\n" + formatLesson(*change.Old) + "\nСтало:\n" + formatLesson(*change.New)
+		return "✏️ <b>Изменено: " + strings.Join(labels, ", ") + "</b>\n\n◽️ <b>Было</b>\n" + formatLesson(*change.Old) + "\n\n▫️ <b>Стало</b>\n" + formatLesson(*change.New)
 	}
 	return ""
 }
@@ -290,13 +290,13 @@ func parseUserDate(value string, location *time.Location) (time.Time, error) {
 func (h *Handler) day(ctx context.Context, date time.Time) ([]string, error) {
 	week, err := h.repo.GetWeek(ctx, h.groupID, date)
 	if errors.Is(err, storage.ErrNotFound) {
-		return []string{fmt.Sprintf("За %s данных в кеше пока нет.", date.Format("02.01.2006"))}, nil
+		return []string{fmt.Sprintf("⏳ <b>%s, %s</b>\n\nЗа этот день данных в кеше пока нет.", weekdayTitle(date), humanDate(date))}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	if week.Status == schedule.Unpublished {
-		return []string{fmt.Sprintf("Расписание на неделю %s ещё не опубликовано. Последняя проверка: %s.", week.Monday.Format("02.01.2006"), checked(week.CheckedAt, h.calendar.Location))}, nil
+		return []string{fmt.Sprintf("📭 <b>Расписание ещё не опубликовано</b>\n\nНеделя с %s\n🕘 Проверено: %s", humanDate(week.Monday), checked(week.CheckedAt, h.calendar.Location))}, nil
 	}
 	var lessons []schedule.Lesson
 	for _, lesson := range week.Lessons {
@@ -305,9 +305,9 @@ func (h *Handler) day(ctx context.Context, date time.Time) ([]string, error) {
 		}
 	}
 	weekType, _ := h.calendar.WeekTypeAt(date)
-	header := fmt.Sprintf("<b>%s, %s</b> · %s неделя", weekday(date), date.Format("02.01.2006"), weekName(weekType))
+	header := fmt.Sprintf("📅 <b>%s, %s</b>\n%s", weekdayTitle(date), humanDate(date), weekBadge(weekType))
 	if len(lessons) == 0 {
-		return []string{header + "\nЗанятий нет."}, nil
+		return []string{header + "\n\n🌿 Занятий нет — можно выдохнуть."}, nil
 	}
 	return formatLessonChunks(header, lessons), nil
 }
@@ -315,25 +315,25 @@ func (h *Handler) day(ctx context.Context, date time.Time) ([]string, error) {
 func (h *Handler) week(ctx context.Context, date time.Time) ([]string, error) {
 	week, err := h.repo.GetWeek(ctx, h.groupID, date)
 	if errors.Is(err, storage.ErrNotFound) {
-		return []string{fmt.Sprintf("За неделю %s данных в кеше пока нет.", schedule.Monday(date, h.calendar.Location).Format("02.01.2006"))}, nil
+		return []string{fmt.Sprintf("⏳ <b>Неделя с %s</b>\n\nДанных в кеше пока нет.", humanDate(schedule.Monday(date, h.calendar.Location)))}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	if week.Status == schedule.Unpublished {
-		return []string{fmt.Sprintf("Расписание на неделю %s ещё не опубликовано. Последняя проверка: %s.", week.Monday.Format("02.01.2006"), checked(week.CheckedAt, h.calendar.Location))}, nil
+		return []string{fmt.Sprintf("📭 <b>Расписание ещё не опубликовано</b>\n\nНеделя с %s\n🕘 Проверено: %s", humanDate(week.Monday), checked(week.CheckedAt, h.calendar.Location))}, nil
 	}
 	byDate := map[string][]schedule.Lesson{}
 	for _, lesson := range week.Lessons {
 		key := lesson.Date.In(h.calendar.Location).Format(time.DateOnly)
 		byDate[key] = append(byDate[key], lesson)
 	}
-	result := []string{fmt.Sprintf("<b>Неделя %s–%s</b> · %s", week.Monday.Format("02.01"), week.Monday.AddDate(0, 0, 6).Format("02.01.2006"), weekName(week.WeekType))}
+	result := []string{fmt.Sprintf("🗓 <b>%s — %s</b>\n%s", humanDate(week.Monday), humanDate(week.Monday.AddDate(0, 0, 6)), weekBadge(week.WeekType))}
 	for day := 0; day < 7; day++ {
 		date := week.Monday.AddDate(0, 0, day)
 		lessons := byDate[date.Format(time.DateOnly)]
 		if len(lessons) > 0 {
-			result = append(result, formatLessonChunks(fmt.Sprintf("<b>%s, %s</b>", weekday(date), date.Format("02.01")), lessons)...)
+			result = append(result, formatLessonChunks(fmt.Sprintf("📅 <b>%s, %s</b>", weekdayTitle(date), humanDate(date)), lessons)...)
 		}
 	}
 	return result, nil
@@ -371,17 +371,17 @@ func (h *Handler) next(ctx context.Context, now time.Time) ([]string, error) {
 				simultaneous = append(simultaneous, lesson)
 			}
 		}
-		header := fmt.Sprintf("<b>Ближайшая пара: %s, %s</b>", weekday(first), first.Format("02.01.2006"))
+		header := fmt.Sprintf("⏭ <b>Ближайшая пара</b>\n📅 %s, %s", weekdayTitle(first), humanDate(first))
 		messages := formatLessonChunks(header, simultaneous)
 		if incomplete {
-			messages[0] += "\n\n⚠️ До найденной пары есть недели без опубликованных данных; результат может быть неполным."
+			messages[0] += "\n\n⚠️ <i>До этой пары есть недели без опубликованных данных. Результат может быть неполным.</i>"
 		}
 		return messages, nil
 	}
 	if incomplete {
-		return []string{"Ближайшая пара не найдена. В кеше есть пробелы, поэтому поиск может быть неполным."}, nil
+		return []string{"🔎 <b>Ближайшая пара не найдена</b>\n\n⚠️ В кеше есть пробелы, поэтому поиск может быть неполным."}, nil
 	}
-	return []string{"В ближайшие 12 недель занятий не найдено."}, nil
+	return []string{"🌿 <b>Занятий не найдено</b>\n\nВ ближайшие 12 недель расписание свободно."}, nil
 }
 
 func formatLessonChunks(header string, lessons []schedule.Lesson) []string {
@@ -400,14 +400,14 @@ func formatLessonChunks(header string, lessons []schedule.Lesson) []string {
 }
 
 func formatLesson(lesson schedule.Lesson) string {
-	label := ""
+	label := "Пара"
 	if lesson.Number != nil {
-		label = fmt.Sprintf("%d пара · ", *lesson.Number)
+		label = fmt.Sprintf("%d пара", *lesson.Number)
 	}
-	line := fmt.Sprintf("<b>%s%s–%s</b>  %s", label, minute(lesson.StartMinute), minute(lesson.EndMinute), html.EscapeString(clip(lesson.Subject, 200)))
-	meta := []string{typeName(lesson)}
+	line := fmt.Sprintf("⏰ <b>%s · %s–%s</b>\n📚 %s", label, minute(lesson.StartMinute), minute(lesson.EndMinute), html.EscapeString(clip(lesson.Subject, 200)))
+	meta := []string{"🎓 " + typeName(lesson)}
 	if lesson.Subgroup != "" {
-		meta = append(meta, "подгруппа "+html.EscapeString(clip(lesson.Subgroup, 40)))
+		meta = append(meta, "👥 Подгруппа "+html.EscapeString(clip(lesson.Subgroup, 40)))
 	}
 	if len(lesson.Teachers) > 0 {
 		limit := min(len(lesson.Teachers), 3)
@@ -418,7 +418,7 @@ func formatLesson(lesson schedule.Lesson) string {
 		if len(lesson.Teachers) > limit {
 			teachers = append(teachers, "…")
 		}
-		meta = append(meta, strings.Join(teachers, ", "))
+		meta = append(meta, "👤 "+strings.Join(teachers, ", "))
 	}
 	if len(lesson.Rooms) > 0 {
 		rooms := make([]string, 0, min(len(lesson.Rooms), 3))
@@ -432,13 +432,13 @@ func formatLesson(lesson schedule.Lesson) string {
 		if len(lesson.Rooms) > 3 {
 			rooms = append(rooms, "…")
 		}
-		meta = append(meta, strings.Join(rooms, ", "))
+		meta = append(meta, "📍 "+strings.Join(rooms, ", "))
 	}
-	return line + "\n" + strings.Join(meta, " · ")
+	return line + "\n" + strings.Join(meta, "\n")
 }
 
 func (h *Handler) help() string {
-	return fmt.Sprintf("<b>Lunara · группа %d</b>\n\n/today — сегодня\n/tomorrow — завтра\n/week — текущая неделя\n/nextweek — следующая неделя\n/next — ближайшая пара\n/day ДД.ММ.ГГГГ — выбранный день\n/changes — история изменений\n/exams — экзамены\n/help — эта справка", h.groupID)
+	return fmt.Sprintf("🌙 <b>Lunara · группа %d</b>\n\n📅 /today — расписание на сегодня\n🌤 /tomorrow — расписание на завтра\n🗓 /week — текущая неделя\n⏭ /nextweek — следующая неделя\n⏰ /next — ближайшая пара\n🔎 /day ДД.ММ.ГГГГ — выбранный день\n🔔 /changes — история изменений\n🎓 /exams — экзамены\n❔ /help — эта справка", h.groupID)
 }
 
 func sameDate(a, b time.Time, loc *time.Location) bool {
@@ -456,6 +456,19 @@ func weekName(value schedule.WeekType) string {
 }
 func weekday(value time.Time) string {
 	return [...]string{"воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"}[value.Weekday()]
+}
+func weekdayTitle(value time.Time) string {
+	return [...]string{"Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"}[value.Weekday()]
+}
+func humanDate(value time.Time) string {
+	months := [...]string{"", "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"}
+	return fmt.Sprintf("%d %s %d", value.Day(), months[value.Month()], value.Year())
+}
+func weekBadge(value schedule.WeekType) string {
+	if value == schedule.Upper {
+		return "🔼 Верхняя неделя"
+	}
+	return "🔽 Нижняя неделя"
 }
 func checked(value time.Time, loc *time.Location) string {
 	return value.In(loc).Format("02.01.2006 15:04")
