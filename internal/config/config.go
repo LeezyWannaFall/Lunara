@@ -12,6 +12,7 @@ import (
 
 type Config struct {
 	GroupID              int64
+	GroupName            string
 	DatabaseURL          string
 	BootstrapWeeks       int
 	StartupTimeout       time.Duration
@@ -91,6 +92,10 @@ func Load(getenv func(string) string) (Config, error) {
 	c.GroupID, err = strconv.ParseInt(value("GROUP_ID", "1306"), 10, 64)
 	if err != nil || c.GroupID <= 0 {
 		return c, fmt.Errorf("GROUP_ID must be a positive integer")
+	}
+	c.GroupName = value("GROUP_NAME", "2023-ФУТ-УпрК-1б")
+	if len([]rune(c.GroupName)) > 100 {
+		return c, fmt.Errorf("GROUP_NAME must not exceed 100 characters")
 	}
 	c.Calendar.Location, err = time.LoadLocation(value("TIMEZONE", "Europe/Moscow"))
 	if err != nil {

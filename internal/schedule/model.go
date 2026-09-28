@@ -28,6 +28,7 @@ type Calendar struct {
 type Room struct {
 	Name     string
 	Building string
+	MapURL   string
 }
 
 // Lesson dates are local midnight; times are local minutes since midnight.

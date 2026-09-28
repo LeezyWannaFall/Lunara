@@ -86,7 +86,7 @@ func TestRealWeeks(t *testing.T) {
 			if lesson.Subject != "Инженерное обустройство территорий" || lesson.Type != schedule.Lecture || lesson.RawType != "" || lesson.StartMinute != 870 || lesson.EndMinute != 960 || lesson.Number == nil || *lesson.Number != 4 {
 				t.Fatalf("bad lesson: %+v", lesson)
 			}
-			if !reflect.DeepEqual(lesson.Teachers, []string{"Снежинская Елена Юрьевна"}) || !reflect.DeepEqual(lesson.Rooms, []schedule.Room{{Name: "53", Building: "Старый корпус"}}) {
+			if !reflect.DeepEqual(lesson.Teachers, []string{"Снежинская Елена Юрьевна"}) || !reflect.DeepEqual(lesson.Rooms, []schedule.Room{{Name: "53", Building: "Старый корпус", MapURL: "https://map.miigaik.ru/#id=437"}}) {
 				t.Fatalf("bad teacher/room: %+v", lesson)
 			}
 		})
@@ -121,6 +121,7 @@ func TestRejectsBrokenPagesWithoutPartialResults(t *testing.T) {
 			d.Find(".schedule-block").AppendHtml(`<div class="day-block schedule-empty">Нет данных для отображения. Выберите группу или другую неделю.</div>`)
 		},
 		"unknown metadata": func(d *goquery.Document) { d.Find(".lesson-left").Last().AppendHtml("<p>Unexpected detail</p>") },
+		"bad room map":     func(d *goquery.Document) { d.Find(".aud-popup a").First().SetAttr("href", "javascript:alert(1)") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := parse(t, mutate(t, fixture(t, "upper"), change))

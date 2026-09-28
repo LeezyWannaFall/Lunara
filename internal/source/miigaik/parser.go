@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 )
 
 const MaxResponseBytes int64 = 2 << 20
-const NormalizationVersion = 1
+const NormalizationVersion = 2
 
 var (
 	ErrUnexpectedPage   = errors.New("unexpected schedule page")
@@ -236,6 +237,18 @@ func parseLesson(card *goquery.Selection, date time.Time) (schedule.Lesson, erro
 		}
 		if room.Name == "" {
 			room.Name = clean(strings.TrimPrefix(clean(roomNode.Find(".aud-num").Text()), "Аудитория"))
+		}
+		links := roomNode.Find(".aud-popup a[href]")
+		if links.Length() > 1 {
+			return lesson, fmt.Errorf("multiple room map links")
+		}
+		if links.Length() == 1 {
+			raw := strings.TrimSpace(links.AttrOr("href", ""))
+			parsed, err := url.Parse(raw)
+			if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "map.miigaik.ru" || parsed.User != nil {
+				return lesson, fmt.Errorf("invalid room map link")
+			}
+			room.MapURL = parsed.String()
 		}
 		if room.Name != "" || room.Building != "" {
 			lesson.Rooms = append(lesson.Rooms, room)

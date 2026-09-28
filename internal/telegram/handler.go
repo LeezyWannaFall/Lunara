@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,14 +26,15 @@ type ExamRepository interface {
 }
 
 type Handler struct {
-	repo     ScheduleRepository
-	exams    ExamRepository
-	calendar schedule.Calendar
-	groupID  int64
-	now      func() time.Time
+	repo      ScheduleRepository
+	exams     ExamRepository
+	calendar  schedule.Calendar
+	groupID   int64
+	groupName string
+	now       func() time.Time
 }
 
-func NewHandler(repo ScheduleRepository, calendar schedule.Calendar, groupID int64) (*Handler, error) {
+func NewHandler(repo ScheduleRepository, calendar schedule.Calendar, groupID int64, names ...string) (*Handler, error) {
 	if repo == nil || groupID <= 0 {
 		return nil, fmt.Errorf("schedule repository and positive group ID are required")
 	}
@@ -40,7 +42,11 @@ func NewHandler(repo ScheduleRepository, calendar schedule.Calendar, groupID int
 		return nil, err
 	}
 	exams, _ := repo.(ExamRepository)
-	return &Handler{repo: repo, exams: exams, calendar: calendar, groupID: groupID, now: time.Now}, nil
+	groupName := fmt.Sprintf("Группа %d", groupID)
+	if len(names) > 0 && strings.TrimSpace(names[0]) != "" {
+		groupName = strings.TrimSpace(names[0])
+	}
+	return &Handler{repo: repo, exams: exams, calendar: calendar, groupID: groupID, groupName: groupName, now: time.Now}, nil
 }
 
 func (h *Handler) Handle(ctx context.Context, text, botUsername string) ([]string, error) {
@@ -95,7 +101,7 @@ func (h *Handler) examSchedule(ctx context.Context) ([]string, error) {
 	if value.Status == schedule.Unpublished {
 		return []string{fmt.Sprintf("🎓 <b>Экзамены</b>\n\nРасписание пока не опубликовано.\n🕘 Проверено: %s", checked(value.CheckedAt, h.calendar.Location))}, nil
 	}
-	header := fmt.Sprintf("🎓 <b>Экзамены · группа %d</b>\n🕘 Проверено: %s", h.groupID, checked(value.CheckedAt, h.calendar.Location))
+	header := fmt.Sprintf("🎓 <b>Экзамены · %s</b>\n🕘 Проверено: %s", html.EscapeString(h.groupName), checked(value.CheckedAt, h.calendar.Location))
 	result := []string{}
 	current := header
 	for _, exam := range value.Exams {
@@ -137,11 +143,11 @@ func formatExam(exam schedule.Exam) string {
 	if len(exam.Rooms) > 0 {
 		rooms := make([]string, 0, len(exam.Rooms))
 		for _, room := range exam.Rooms {
-			v := room.Name
+			v := formatRoom(room)
 			if room.Building != "" {
-				v += " (" + room.Building + ")"
+				v += " (" + html.EscapeString(room.Building) + ")"
 			}
-			rooms = append(rooms, html.EscapeString(v))
+			rooms = append(rooms, v)
 		}
 		meta = append(meta, "📍 "+strings.Join(rooms, ", "))
 	}
@@ -423,7 +429,7 @@ func formatLesson(lesson schedule.Lesson) string {
 	if len(lesson.Rooms) > 0 {
 		rooms := make([]string, 0, min(len(lesson.Rooms), 3))
 		for _, room := range lesson.Rooms[:min(len(lesson.Rooms), 3)] {
-			value := html.EscapeString(clip(room.Name, 40))
+			value := formatRoom(room)
 			if room.Building != "" {
 				value += " (" + html.EscapeString(clip(room.Building, 40)) + ")"
 			}
@@ -438,7 +444,16 @@ func formatLesson(lesson schedule.Lesson) string {
 }
 
 func (h *Handler) help() string {
-	return fmt.Sprintf("🌙 <b>Lunara · группа %d</b>\n\n📅 /today — расписание на сегодня\n🌤 /tomorrow — расписание на завтра\n🗓 /week — текущая неделя\n⏭ /nextweek — следующая неделя\n⏰ /next — ближайшая пара\n🔎 /day ДД.ММ.ГГГГ — выбранный день\n🔔 /changes — история изменений\n🎓 /exams — экзамены\n❔ /help — эта справка", h.groupID)
+	return fmt.Sprintf("🌙 <b>Lunara</b>\n🎓 %s\n\n📅 /today — расписание на сегодня\n🌤 /tomorrow — расписание на завтра\n🗓 /week — текущая неделя\n⏭ /nextweek — следующая неделя\n⏰ /next — ближайшая пара\n🔎 /day ДД.ММ.ГГГГ — выбранный день\n🔔 /changes — история изменений\n🎓 /exams — экзамены\n❔ /help — эта справка", html.EscapeString(h.groupName))
+}
+
+func formatRoom(room schedule.Room) string {
+	name := html.EscapeString(clip(room.Name, 60))
+	parsed, err := url.Parse(room.MapURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "map.miigaik.ru" || parsed.User != nil {
+		return name
+	}
+	return `<a href="` + html.EscapeString(parsed.String()) + `">` + name + `</a>`
 }
 
 func sameDate(a, b time.Time, loc *time.Location) bool {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.GroupID != 1306 || c.Calendar.Location.String() != "Europe/Moscow" || c.ShutdownTimeout != 20*time.Second || c.BootstrapWeeks != 2 || c.StartupTimeout != 2*time.Minute || c.WatchWeeks != 2 || c.WatchInterval != 24*time.Hour || c.ConfirmationDelay != 10*time.Minute || c.DeliveryPollInterval != 5*time.Second || c.ExamInterval != 24*time.Hour || c.ReminderPollInterval != time.Minute || c.TomorrowReminder || c.WeeklyReminder {
+	if c.GroupID != 1306 || c.GroupName != "2023-ФУТ-УпрК-1б" || c.Calendar.Location.String() != "Europe/Moscow" || c.ShutdownTimeout != 20*time.Second || c.BootstrapWeeks != 2 || c.StartupTimeout != 2*time.Minute || c.WatchWeeks != 2 || c.WatchInterval != 24*time.Hour || c.ConfirmationDelay != 10*time.Minute || c.DeliveryPollInterval != 5*time.Second || c.ExamInterval != 24*time.Hour || c.ReminderPollInterval != time.Minute || c.TomorrowReminder || c.WeeklyReminder {
 		t.Fatalf("wrong defaults: %+v", c)
 	}
 }
@@ -19,6 +20,7 @@ func TestLoadDefaults(t *testing.T) {
 func TestLoadRejectsInvalidConfig(t *testing.T) {
 	for _, tc := range []struct{ key, value string }{
 		{"WEEK_ANCHOR", "2026-02-30"}, {"GROUP_ID", "0"}, {"GROUP_ID", "abc"},
+		{"GROUP_NAME", strings.Repeat("я", 101)},
 		{"TIMEZONE", "Missing/Zone"}, {"WEEK_ANCHOR", "2025-09-02"},
 		{"WEEK_ANCHOR_TYPE", "odd"}, {"LOG_LEVEL", "verbose"},
 		{"BOOTSTRAP_WEEKS", "0"}, {"BOOTSTRAP_WEEKS", "13"}, {"BOOTSTRAP_WEEKS", "abc"},

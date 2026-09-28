@@ -53,7 +53,7 @@ func testHandler(t *testing.T, weeks map[string]schedule.Schedule) *Handler {
 		t.Fatal(err)
 	}
 	anchor, _ := schedule.ParseDate("2025-09-01", loc)
-	h, err := NewHandler(fakeRepo{weeks: weeks}, schedule.Calendar{Location: loc, AnchorMonday: anchor, AnchorType: schedule.Upper}, 1306)
+	h, err := NewHandler(fakeRepo{weeks: weeks}, schedule.Calendar{Location: loc, AnchorMonday: anchor, AnchorType: schedule.Upper}, 1306, "2023-ФУТ-УпрК-1б")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func published(t *testing.T) schedule.Schedule {
 	monday, _ := schedule.ParseDate("2026-09-28", loc)
 	n := 2
 	return schedule.Schedule{GroupID: 1306, Monday: monday, WeekType: schedule.Upper, Status: schedule.Published, CheckedAt: time.Now(), Lessons: []schedule.Lesson{
-		{Date: monday, Number: &n, StartMinute: 600, EndMinute: 690, Subject: "Math <advanced>", Type: schedule.Lecture, Teachers: []string{"A & B"}, Rooms: []schedule.Room{{Name: "101", Building: "A"}}},
+		{Date: monday, Number: &n, StartMinute: 600, EndMinute: 690, Subject: "Math <advanced>", Type: schedule.Lecture, Teachers: []string{"A & B"}, Rooms: []schedule.Room{{Name: "101", Building: "A", MapURL: "https://map.miigaik.ru/#id=101"}}},
 		{Date: monday.AddDate(0, 0, 1), StartMinute: 540, EndMinute: 630, Subject: "Physics", Type: schedule.Lab},
 	}}
 }
@@ -88,8 +88,12 @@ func TestCommandsAndHTMLFormatting(t *testing.T) {
 	}
 	messages, _ := h.Handle(context.Background(), "/today@lunarabot", "LunaraBot")
 	joined := strings.Join(messages, "\n")
-	if !strings.Contains(joined, "📅 <b>Понедельник, 28 сентября 2026</b>") || !strings.Contains(joined, "⏰ <b>2 пара · 10:00–11:30</b>") || !strings.Contains(joined, "📚 Math &lt;advanced&gt;") || !strings.Contains(joined, "👤 A &amp; B") || !strings.Contains(joined, "📍 101 (A)") {
+	if !strings.Contains(joined, "📅 <b>Понедельник, 28 сентября 2026</b>") || !strings.Contains(joined, "⏰ <b>2 пара · 10:00–11:30</b>") || !strings.Contains(joined, "📚 Math &lt;advanced&gt;") || !strings.Contains(joined, "👤 A &amp; B") || !strings.Contains(joined, `📍 <a href="https://map.miigaik.ru/#id=101">101</a> (A)`) {
 		t.Fatalf("HTML not escaped: %s", joined)
+	}
+	help, _ := h.Handle(context.Background(), "/help", "bot")
+	if !strings.Contains(help[0], "2023-ФУТ-УпрК-1б") {
+		t.Fatalf("group name missing: %s", help[0])
 	}
 	if messages, _ := h.Handle(context.Background(), "/today@OtherBot", "LunaraBot"); messages != nil {
 		t.Fatal("command for another bot accepted")

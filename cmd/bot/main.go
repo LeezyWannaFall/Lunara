@@ -60,7 +60,7 @@ func run() int {
 		}
 		logger.Warn("source unavailable; cached schedules retained", "cached_weeks", report.Cached, "error", err)
 	}
-	handler, err := telegrambot.NewHandler(store, cfg.Calendar, cfg.GroupID)
+	handler, err := telegrambot.NewHandler(store, cfg.Calendar, cfg.GroupID, cfg.GroupName)
 	if err != nil {
 		cancelStartup()
 		store.Close()
