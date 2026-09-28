@@ -5,9 +5,15 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
+
+	"github.com/LeezyWannaFall/Lunara/internal/changes"
 )
 
-type fakeAPI struct{ sent []int64 }
+type fakeAPI struct {
+	sent     []int64
+	answered int
+}
 
 func (f *fakeAPI) GetMe(context.Context) (User, error)                 { return User{Username: "LunaraBot"}, nil }
 func (f *fakeAPI) GetUpdates(context.Context, int64) ([]Update, error) { return nil, nil }
@@ -15,6 +21,11 @@ func (f *fakeAPI) SendMessage(_ context.Context, chatID int64, _ string) error {
 	f.sent = append(f.sent, chatID)
 	return nil
 }
+func (f *fakeAPI) SendMessageWithButtons(_ context.Context, chatID int64, _ string, _ [][]InlineButton) error {
+	f.sent = append(f.sent, chatID)
+	return nil
+}
+func (f *fakeAPI) AnswerCallback(context.Context, string) error { f.answered++; return nil }
 
 type fakeState struct{}
 
@@ -79,5 +90,22 @@ func TestRunPersistsOffsetAfterEachUpdate(t *testing.T) {
 	}
 	if len(state.offsets) != 2 || state.offsets[0] != 6 || state.offsets[1] != 7 {
 		t.Fatalf("offsets=%v", state.offsets)
+	}
+}
+
+func TestChangesCallbackIsAnswered(t *testing.T) {
+	h := testHandler(t, nil)
+	h.repo = fakeRepo{history: []changes.ChangeSet{{ID: 1, GroupID: 1306, DetectedAt: time.Now(), WeekStarts: []time.Time{time.Now()}, Kind: changes.FirstPublication}}}
+	api := &fakeAPI{}
+	bot, err := NewBot(context.Background(), api, h, fakeState{}, 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := &CallbackQuery{ID: "callback", Data: "changes:2", Message: &Message{Chat: Chat{ID: 10, Type: "private"}}}
+	if err := bot.handleUpdate(context.Background(), Update{ID: 1, CallbackQuery: query}); err != nil {
+		t.Fatal(err)
+	}
+	if api.answered != 1 || len(api.sent) != 1 {
+		t.Fatalf("answered=%d sent=%v", api.answered, api.sent)
 	}
 }

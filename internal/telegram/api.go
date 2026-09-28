@@ -24,8 +24,20 @@ type Message struct {
 }
 
 type Update struct {
-	ID      int64    `json:"update_id"`
+	ID            int64          `json:"update_id"`
+	Message       *Message       `json:"message,omitempty"`
+	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
+}
+
+type CallbackQuery struct {
+	ID      string   `json:"id"`
 	Message *Message `json:"message,omitempty"`
+	Data    string   `json:"data"`
+}
+
+type InlineButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
 }
 
 type User struct {
@@ -37,6 +49,8 @@ type API interface {
 	GetMe(context.Context) (User, error)
 	GetUpdates(context.Context, int64) ([]Update, error)
 	SendMessage(context.Context, int64, string) error
+	SendMessageWithButtons(context.Context, int64, string, [][]InlineButton) error
+	AnswerCallback(context.Context, string) error
 }
 
 type Client struct {
@@ -112,16 +126,28 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64) ([]Update, error)
 	var updates []Update
 	err := c.call(ctx, "getUpdates", map[string]any{
 		"offset": offset, "limit": 100, "timeout": 30,
-		"allowed_updates": []string{"message"},
+		"allowed_updates": []string{"message", "callback_query"},
 	}, &updates)
 	return updates, err
 }
 
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) error {
+	return c.SendMessageWithButtons(ctx, chatID, text, nil)
+}
+
+func (c *Client) SendMessageWithButtons(ctx context.Context, chatID int64, text string, buttons [][]InlineButton) error {
 	if text == "" || len([]rune(text)) > 4096 {
 		return fmt.Errorf("Telegram message length is outside 1..4096")
 	}
-	return c.call(ctx, "sendMessage", map[string]any{
+	request := map[string]any{
 		"chat_id": chatID, "text": text, "parse_mode": "HTML",
-	}, nil)
+	}
+	if len(buttons) > 0 {
+		request["reply_markup"] = map[string]any{"inline_keyboard": buttons}
+	}
+	return c.call(ctx, "sendMessage", request, nil)
+}
+
+func (c *Client) AnswerCallback(ctx context.Context, id string) error {
+	return c.call(ctx, "answerCallbackQuery", map[string]string{"callback_query_id": id}, nil)
 }

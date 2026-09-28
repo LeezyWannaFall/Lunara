@@ -120,7 +120,7 @@ func count(t *testing.T, pool *pgxpool.Pool, table string) int {
 func TestPostgresMigrations(t *testing.T) {
 	_, pool, provider := database(t)
 	ctx := context.Background()
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 2 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 3 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if result, err := provider.Up(ctx); err != nil || len(result) != 0 {
@@ -129,14 +129,20 @@ func TestPostgresMigrations(t *testing.T) {
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 2 {
 		t.Fatalf("down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
 		t.Fatalf("second down version=%d err=%v", version, err)
+	}
+	if _, err := provider.Down(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+		t.Fatalf("third down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatal(err)
@@ -160,6 +166,131 @@ func TestTelegramOffsetPersistsAndOnlyMovesForward(t *testing.T) {
 	}
 	if offset, err := store.TelegramOffset(ctx); err != nil || offset != 42 {
 		t.Fatalf("persisted offset=%d err=%v", offset, err)
+	}
+}
+
+func TestPostgresChangeConfirmationAndHistory(t *testing.T) {
+	store, pool, _ := database(t)
+	ctx := context.Background()
+	base := week(t, "upper", "2026-09-28")
+	if _, err := store.SaveInitialWeeks(ctx, []schedule.Schedule{base}); err != nil {
+		t.Fatal(err)
+	}
+	candidate := base
+	candidate.Lessons = append([]schedule.Lesson(nil), base.Lessons...)
+	candidate.Lessons[0].Rooms = []schedule.Room{{Name: "999", Building: "test"}}
+	candidate.Hash = strings.Repeat("b", 64)
+	candidate.CheckedAt = base.CheckedAt.Add(time.Hour)
+	firstSeen := time.Now().UTC().Truncate(time.Microsecond)
+	if got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, firstSeen); err != nil || got.Status != storage.ObservationPending {
+		t.Fatalf("first=%+v %v", got, err)
+	}
+	if got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, firstSeen.Add(9*time.Minute)); err != nil || got.Status != storage.ObservationPending {
+		t.Fatalf("early=%+v %v", got, err)
+	}
+	got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, firstSeen.Add(10*time.Minute))
+	if err != nil || got.Status != storage.ObservationConfirmed || got.ChangeSet == nil || len(got.ChangeSet.Changes) != 1 {
+		t.Fatalf("confirmed=%+v %v", got, err)
+	}
+	active, err := store.GetWeek(ctx, 1306, base.Monday)
+	if err != nil || active.Hash != candidate.Hash {
+		t.Fatalf("active=%+v %v", active, err)
+	}
+	history, err := store.ChangeSets(ctx, 1306, 0, 10)
+	if err != nil || len(history) != 1 || history[0].ID != got.ChangeSet.ID {
+		t.Fatalf("history=%+v %v", history, err)
+	}
+	if count(t, pool, "schedule_candidates") != 0 {
+		t.Fatal("confirmed candidate retained")
+	}
+}
+
+func TestPostgresCandidateResetBreaksConfirmation(t *testing.T) {
+	store, pool, _ := database(t)
+	ctx := context.Background()
+	base := week(t, "upper", "2026-09-28")
+	_, _ = store.SaveInitialWeeks(ctx, []schedule.Schedule{base})
+	candidate := base
+	candidate.Hash = strings.Repeat("c", 64)
+	candidate.CheckedAt = base.CheckedAt.Add(time.Hour)
+	now := time.Now().UTC()
+	if _, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetCandidates(ctx, 1306, []time.Time{base.Monday}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now.Add(20*time.Minute))
+	if err != nil || got.Status != storage.ObservationPending || count(t, pool, "change_sets") != 0 {
+		t.Fatalf("reset=%+v %v", got, err)
+	}
+}
+
+func TestPostgresReturnToActiveVersionClearsCandidate(t *testing.T) {
+	store, pool, _ := database(t)
+	ctx := context.Background()
+	base := week(t, "upper", "2026-09-28")
+	_, _ = store.SaveInitialWeeks(ctx, []schedule.Schedule{base})
+	candidate := base
+	candidate.Hash = strings.Repeat("f", 64)
+	candidate.CheckedAt = base.CheckedAt.Add(time.Hour)
+	now := time.Now().UTC()
+	if _, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ObserveBatch(ctx, []schedule.Schedule{base}, now.Add(time.Minute))
+	if err != nil || got.Status != storage.ObservationUnchanged || count(t, pool, "schedule_candidates") != 0 || count(t, pool, "change_sets") != 0 {
+		t.Fatalf("return=%+v %v", got, err)
+	}
+}
+
+func TestPostgresMassRemovalQuarantineAndOperatorAcceptance(t *testing.T) {
+	store, _, _ := database(t)
+	ctx := context.Background()
+	base := week(t, "upper", "2026-09-28")
+	_, _ = store.SaveInitialWeeks(ctx, []schedule.Schedule{base})
+	candidate := base
+	candidate.Lessons = append([]schedule.Lesson(nil), base.Lessons[:len(base.Lessons)/2]...)
+	candidate.Hash = strings.Repeat("d", 64)
+	candidate.CheckedAt = base.CheckedAt.Add(time.Hour)
+	now := time.Now().UTC()
+	_, _ = store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now)
+	got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now.Add(storage.ConfirmationDelay))
+	if err != nil || got.Status != storage.ObservationQuarantined {
+		t.Fatalf("quarantine=%+v %v", got, err)
+	}
+	active, _ := store.GetWeek(ctx, 1306, base.Monday)
+	if active.Hash != base.Hash {
+		t.Fatal("quarantine changed active schedule")
+	}
+	items, err := store.Quarantines(ctx, 1306)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%+v %v", items, err)
+	}
+	set, err := store.AcceptQuarantine(ctx, 1306, base.Monday, now.Add(11*time.Minute))
+	if err != nil || set.ID == 0 {
+		t.Fatalf("accept=%+v %v", set, err)
+	}
+	active, _ = store.GetWeek(ctx, 1306, base.Monday)
+	if active.Hash != candidate.Hash {
+		t.Fatal("accepted candidate not activated")
+	}
+}
+
+func TestPostgresParserVersionRebaselineHasNoHistory(t *testing.T) {
+	store, pool, _ := database(t)
+	ctx := context.Background()
+	base := week(t, "upper", "2026-09-28")
+	_, _ = store.SaveInitialWeeks(ctx, []schedule.Schedule{base})
+	candidate := base
+	candidate.NormalizationVersion++
+	candidate.Hash = strings.Repeat("e", 64)
+	candidate.CheckedAt = base.CheckedAt.Add(time.Hour)
+	now := time.Now().UTC()
+	_, _ = store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now)
+	got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now.Add(storage.ConfirmationDelay))
+	if err != nil || got.Status != storage.ObservationRebaselined || count(t, pool, "change_sets") != 0 {
+		t.Fatalf("rebaseline=%+v %v", got, err)
 	}
 }
 func TestPostgresRoundTripAndBaselinePreservation(t *testing.T) {

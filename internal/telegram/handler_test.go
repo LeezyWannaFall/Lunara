@@ -8,11 +8,15 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/LeezyWannaFall/Lunara/internal/changes"
 	"github.com/LeezyWannaFall/Lunara/internal/schedule"
 	"github.com/LeezyWannaFall/Lunara/internal/storage"
 )
 
-type fakeRepo struct{ weeks map[string]schedule.Schedule }
+type fakeRepo struct {
+	weeks   map[string]schedule.Schedule
+	history []changes.ChangeSet
+}
 
 func (f fakeRepo) GetWeek(_ context.Context, _ int64, date time.Time) (schedule.Schedule, error) {
 	week, ok := f.weeks[schedule.Monday(date, date.Location()).Format(time.DateOnly)]
@@ -20,6 +24,18 @@ func (f fakeRepo) GetWeek(_ context.Context, _ int64, date time.Time) (schedule.
 		return schedule.Schedule{}, storage.ErrNotFound
 	}
 	return week, nil
+}
+func (f fakeRepo) ChangeSets(_ context.Context, _ int64, before int64, limit int) ([]changes.ChangeSet, error) {
+	var result []changes.ChangeSet
+	for _, set := range f.history {
+		if before == 0 || set.ID < before {
+			result = append(result, set)
+		}
+		if len(result) == limit {
+			break
+		}
+	}
+	return result, nil
 }
 
 func testHandler(t *testing.T, weeks map[string]schedule.Schedule) *Handler {
@@ -29,7 +45,7 @@ func testHandler(t *testing.T, weeks map[string]schedule.Schedule) *Handler {
 		t.Fatal(err)
 	}
 	anchor, _ := schedule.ParseDate("2025-09-01", loc)
-	h, err := NewHandler(fakeRepo{weeks}, schedule.Calendar{Location: loc, AnchorMonday: anchor, AnchorType: schedule.Upper}, 1306)
+	h, err := NewHandler(fakeRepo{weeks: weeks}, schedule.Calendar{Location: loc, AnchorMonday: anchor, AnchorType: schedule.Upper}, 1306)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,11 +109,33 @@ type errorRepo struct{}
 func (errorRepo) GetWeek(context.Context, int64, time.Time) (schedule.Schedule, error) {
 	return schedule.Schedule{}, errors.New("db")
 }
+func (errorRepo) ChangeSets(context.Context, int64, int64, int) ([]changes.ChangeSet, error) {
+	return nil, errors.New("db")
+}
 
 func TestRepositoryErrorsAreReturned(t *testing.T) {
 	h := testHandler(t, nil)
 	h.repo = errorRepo{}
 	if _, err := h.Handle(context.Background(), "/week", "bot"); err == nil {
 		t.Fatal("repository error hidden")
+	}
+}
+
+func TestChangesHistoryFormattingAndCursor(t *testing.T) {
+	h := testHandler(t, nil)
+	oldLesson := published(t).Lessons[0]
+	newLesson := oldLesson
+	newLesson.Rooms = []schedule.Room{{Name: "202"}}
+	h.repo = fakeRepo{history: []changes.ChangeSet{
+		{ID: 2, GroupID: 1306, DetectedAt: time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC), WeekStarts: []time.Time{oldLesson.Date}, Kind: changes.Regular, Changes: []changes.Change{{Kind: changes.Modified, Old: &oldLesson, New: &newLesson, Fields: []changes.Field{changes.FieldRooms}}}},
+		{ID: 1, GroupID: 1306, DetectedAt: time.Now(), WeekStarts: []time.Time{oldLesson.Date}, Kind: changes.FirstPublication},
+	}}
+	messages, next, err := h.Changes(context.Background(), "")
+	if err != nil || next != 2 || len(messages) != 1 || !strings.Contains(messages[0], "аудитория") || !strings.Contains(messages[0], "Было") {
+		t.Fatalf("messages=%v next=%d err=%v", messages, next, err)
+	}
+	messages, next, err = h.Changes(context.Background(), "2")
+	if err != nil || next != 0 || !strings.Contains(messages[0], "Опубликовано расписание") {
+		t.Fatalf("older=%v next=%d err=%v", messages, next, err)
 	}
 }

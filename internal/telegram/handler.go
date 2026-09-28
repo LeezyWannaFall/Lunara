@@ -6,15 +6,18 @@ import (
 	"fmt"
 	"html"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	changeModel "github.com/LeezyWannaFall/Lunara/internal/changes"
 	"github.com/LeezyWannaFall/Lunara/internal/schedule"
 	"github.com/LeezyWannaFall/Lunara/internal/storage"
 )
 
 type ScheduleRepository interface {
 	GetWeek(context.Context, int64, time.Time) (schedule.Schedule, error)
+	ChangeSets(context.Context, int64, int64, int) ([]changeModel.ChangeSet, error)
 }
 
 type Handler struct {
@@ -63,12 +66,110 @@ func (h *Handler) Handle(ctx context.Context, text, botUsername string) ([]strin
 	case "next":
 		return h.next(ctx, now)
 	case "changes":
-		return []string{"История изменений появится после подключения обнаружения изменений на этапе 5."}, nil
+		messages, _, err := h.Changes(ctx, argument)
+		return messages, err
 	case "exams":
 		return []string{"Просмотр экзаменов пока не подключён. Источник: https://study.miigaik.ru/exam/"}, nil
 	default:
 		return []string{"Неизвестная команда. Используйте /help."}, nil
 	}
+}
+
+// Changes returns one history page and the cursor for the next older page.
+func (h *Handler) Changes(ctx context.Context, argument string) ([]string, int64, error) {
+	var before int64
+	if argument != "" {
+		value, err := strconv.ParseInt(argument, 10, 64)
+		if err != nil || value <= 0 {
+			return []string{"Используйте <code>/changes</code> без аргументов."}, 0, nil
+		}
+		before = value
+	}
+	sets, err := h.repo.ChangeSets(ctx, h.groupID, before, 2)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(sets) == 0 {
+		return []string{"Подтверждённых изменений пока нет."}, 0, nil
+	}
+	set := sets[0]
+	texts := formatChangeSet(set, h.calendar.Location)
+	var next int64
+	if len(sets) > 1 {
+		next = set.ID
+	}
+	return texts, next, nil
+}
+
+func formatChangeSet(set changeModel.ChangeSet, loc *time.Location) []string {
+	header := fmt.Sprintf("<b>Изменения на сайте расписания</b>\n%s", set.DetectedAt.In(loc).Format("02.01.2006 15:04"))
+	if set.Kind == changeModel.FirstPublication {
+		dates := make([]string, len(set.WeekStarts))
+		for i, week := range set.WeekStarts {
+			dates[i] = week.Format("02.01.2006")
+		}
+		return []string{header + "\n\nОпубликовано расписание на недели: " + strings.Join(dates, ", ") + "."}
+	}
+	result := []string{}
+	current := header
+	for _, change := range set.Changes {
+		block := formatChange(change)
+		if len([]rune(block)) > 3800 {
+			block = compactChange(change)
+		}
+		if len([]rune(current))+len([]rune(block))+2 > 4096 {
+			result = append(result, current)
+			current = header + " (продолжение)\n\n" + block
+		} else {
+			current += "\n\n" + block
+		}
+	}
+	return append(result, current)
+}
+
+func compactChange(change changeModel.Change) string {
+	lesson := change.New
+	if lesson == nil {
+		lesson = change.Old
+	}
+	mark := map[changeModel.Kind]string{changeModel.Added: "➕", changeModel.Removed: "➖", changeModel.Modified: "✏️"}[change.Kind]
+	return fmt.Sprintf("%s <b>%s</b> · %s · %s", mark, change.Kind, lesson.Date.Format("02.01.2006"), html.EscapeString(clip(lesson.Subject, 100)))
+}
+
+func formatChange(change changeModel.Change) string {
+	mark := ""
+	if change.Ambiguous {
+		mark = "\n<i>Связь между занятиями неоднозначна.</i>"
+	}
+	switch change.Kind {
+	case changeModel.Added:
+		return "➕ <b>Добавлено</b>\n" + formatLesson(*change.New) + mark
+	case changeModel.Removed:
+		return "➖ <b>Убрано из расписания</b>\n" + formatLesson(*change.Old) + mark
+	case changeModel.Modified:
+		labels := make([]string, len(change.Fields))
+		for i, field := range change.Fields {
+			labels[i] = fieldName(field)
+		}
+		return "✏️ <b>Изменено: " + strings.Join(labels, ", ") + "</b>\nБыло:\n" + formatLesson(*change.Old) + "\nСтало:\n" + formatLesson(*change.New)
+	}
+	return ""
+}
+
+func fieldName(field changeModel.Field) string {
+	switch field {
+	case changeModel.FieldNumber:
+		return "номер пары"
+	case changeModel.FieldTime:
+		return "время"
+	case changeModel.FieldType:
+		return "тип"
+	case changeModel.FieldTeachers:
+		return "преподаватель"
+	case changeModel.FieldRooms:
+		return "аудитория"
+	}
+	return string(field)
 }
 
 func parseCommand(text, username string) (string, string, bool) {
