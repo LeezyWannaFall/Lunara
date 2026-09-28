@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -28,6 +29,9 @@ func TestClientBotAPIRequests(t *testing.T) {
 		if strings.HasSuffix(req.URL.Path, "/sendMessage") && (!strings.Contains(string(body), `"parse_mode":"HTML"`) || !strings.Contains(string(body), `"chat_id":7`)) {
 			t.Fatalf("bad sendMessage request: %s", body)
 		}
+		if strings.HasSuffix(req.URL.Path, "/sendMessage") {
+			return jsonResponse(`{"ok":true,"result":{"message_id":99,"chat":{"id":7,"type":"private"},"text":"hello"}}`), nil
+		}
 		return jsonResponse(`{"ok":true,"result":true}`), nil
 	})
 	client, err := NewClient("secret", &http.Client{Transport: transport}, "https://telegram.test")
@@ -48,4 +52,17 @@ func TestClientBotAPIRequests(t *testing.T) {
 
 func jsonResponse(body string) *http.Response {
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}
+}
+
+func TestClientParsesTelegramRetryAfter(t *testing.T) {
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		response := jsonResponse(`{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":12}}`)
+		response.StatusCode = http.StatusTooManyRequests
+		return response, nil
+	})
+	client, _ := NewClient("secret", &http.Client{Transport: transport}, "https://telegram.test")
+	_, err := client.SendNotification(context.Background(), 7, "hello")
+	if delay, ok := RetryAfter(err); !ok || delay != 12*time.Second || !Temporary(err) {
+		t.Fatalf("delay=%v ok=%v err=%v", delay, ok, err)
+	}
 }

@@ -61,7 +61,7 @@ func run() int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
-		set, err := store.AcceptQuarantine(ctx, cfg.GroupID, date, time.Now())
+		set, err := store.AcceptQuarantineForChat(ctx, cfg.GroupID, date, time.Now(), cfg.TelegramChatID)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1

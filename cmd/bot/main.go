@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 	_ "time/tzdata"
@@ -80,13 +81,33 @@ func run() int {
 		logger.Error("Telegram initialization failed", "error", err)
 		return 1
 	}
+	watcher, err := scheduler.NewWatcher(source, store, cfg.Calendar, cfg.GroupID, cfg.WatchWeeks, cfg.WatchInterval, cfg.ConfirmationDelay, cfg.TelegramChatID, logger.With("component", "watcher"))
+	if err != nil {
+		store.Close()
+		logger.Error("watcher initialization failed", "error", err)
+		return 1
+	}
+	delivery, err := scheduler.NewDeliveryWorker(store, telegramAPI, cfg.Calendar.Location, cfg.DeliveryPollInterval, logger.With("component", "delivery"))
+	if err != nil {
+		store.Close()
+		logger.Error("delivery initialization failed", "error", err)
+		return 1
+	}
 	if ctx.Err() == nil {
-		logger.Info("application started", "stage", 4, "timezone", cfg.Calendar.Location.String(), "cached_weeks", report.Cached, "inserted_weeks", report.Inserted)
+		logger.Info("application started", "stage", 6, "timezone", cfg.Calendar.Location.String(), "cached_weeks", report.Cached, "inserted_weeks", report.Inserted)
+		var workers sync.WaitGroup
+		workers.Add(2)
+		go func() { defer workers.Done(); watcher.Run(ctx) }()
+		go func() { defer workers.Done(); delivery.Run(ctx) }()
 		if err := bot.Run(ctx); err != nil && ctx.Err() == nil {
-			store.Close()
 			logger.Error("Telegram polling stopped", "error", err)
+			stop()
+			workers.Wait()
+			store.Close()
 			return 1
 		}
+		stop()
+		workers.Wait()
 	}
 	stop()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)

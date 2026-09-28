@@ -11,7 +11,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.GroupID != 1306 || c.Calendar.Location.String() != "Europe/Moscow" || c.ShutdownTimeout != 20*time.Second || c.BootstrapWeeks != 2 || c.StartupTimeout != 2*time.Minute {
+	if c.GroupID != 1306 || c.Calendar.Location.String() != "Europe/Moscow" || c.ShutdownTimeout != 20*time.Second || c.BootstrapWeeks != 2 || c.StartupTimeout != 2*time.Minute || c.WatchWeeks != 2 || c.WatchInterval != 24*time.Hour || c.ConfirmationDelay != 10*time.Minute || c.DeliveryPollInterval != 5*time.Second {
 		t.Fatalf("wrong defaults: %+v", c)
 	}
 }
@@ -25,6 +25,8 @@ func TestLoadRejectsInvalidConfig(t *testing.T) {
 		{"STARTUP_TIMEOUT", "0s"}, {"STARTUP_TIMEOUT", "bad"},
 		{"SHUTDOWN_TIMEOUT", "0s"}, {"SHUTDOWN_TIMEOUT", "bad"},
 		{"TELEGRAM_CHAT_ID", "abc"}, {"TELEGRAM_CHAT_ID", "0"},
+		{"WATCH_WEEKS", "0"}, {"WATCH_WEEKS", "13"}, {"WATCH_INTERVAL", "0s"},
+		{"CONFIRMATION_DELAY", "9m"}, {"DELIVERY_POLL_INTERVAL", "0s"},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
 			env := map[string]string{}

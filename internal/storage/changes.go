@@ -40,13 +40,22 @@ type Quarantine struct {
 	Reason    string
 }
 
+type ObserveOptions struct {
+	ConfirmationDelay time.Duration
+	DeliveryChatID    int64
+}
+
 // ObserveBatch records one complete successful source pass. A changed snapshot
 // becomes active only after the same content is observed at least ten minutes
 // after its first observation. All writes for the pass are atomic.
 func (s *Store) ObserveBatch(ctx context.Context, weeks []schedule.Schedule, observedAt time.Time) (ObservationResult, error) {
+	return s.ObserveBatchWithOptions(ctx, weeks, observedAt, ObserveOptions{ConfirmationDelay: ConfirmationDelay})
+}
+
+func (s *Store) ObserveBatchWithOptions(ctx context.Context, weeks []schedule.Schedule, observedAt time.Time, options ObserveOptions) (ObservationResult, error) {
 	var result ObservationResult
-	if len(weeks) == 0 || observedAt.IsZero() {
-		return result, fmt.Errorf("observation batch and time are required")
+	if len(weeks) == 0 || observedAt.IsZero() || options.ConfirmationDelay < ConfirmationDelay {
+		return result, fmt.Errorf("observation batch, time and confirmation delay of at least 10m are required")
 	}
 	ordered := append([]schedule.Schedule(nil), weeks...)
 	seen := map[string]bool{}
@@ -125,7 +134,7 @@ func (s *Store) ObserveBatch(ctx context.Context, weeks []schedule.Schedule, obs
 		if _, err := tx.Exec(ctx, `UPDATE schedule_candidates SET last_seen_at=$3,observation_count=observation_count+1 WHERE group_id=$1 AND week_start=$2::date`, candidate.GroupID, candidate.Monday.Format(time.DateOnly), observedAt.UTC()); err != nil {
 			return result, err
 		}
-		if observedAt.UTC().Sub(firstSeen) < ConfirmationDelay {
+		if observedAt.UTC().Sub(firstSeen) < options.ConfirmationDelay {
 			anyPending = true
 			continue
 		}
@@ -170,6 +179,11 @@ func (s *Store) ObserveBatch(ctx context.Context, weeks []schedule.Schedule, obs
 		if len(historyWeeks) > 0 {
 			if err := insertChangeSetTx(ctx, tx, &set); err != nil {
 				return result, err
+			}
+			if options.DeliveryChatID != 0 {
+				if err := enqueueDeliveryTx(ctx, tx, options.DeliveryChatID, set.ID, observedAt.UTC()); err != nil {
+					return result, err
+				}
 			}
 			result.ChangeSet = &set
 		}
@@ -264,6 +278,10 @@ func (s *Store) Quarantines(ctx context.Context, groupID int64) ([]Quarantine, e
 }
 
 func (s *Store) AcceptQuarantine(ctx context.Context, groupID int64, date time.Time, acceptedAt time.Time) (changes.ChangeSet, error) {
+	return s.AcceptQuarantineForChat(ctx, groupID, date, acceptedAt, 0)
+}
+
+func (s *Store) AcceptQuarantineForChat(ctx context.Context, groupID int64, date time.Time, acceptedAt time.Time, chatID int64) (changes.ChangeSet, error) {
 	var set changes.ChangeSet
 	if groupID <= 0 || date.IsZero() || acceptedAt.IsZero() {
 		return set, fmt.Errorf("group, week and acceptance time are required")
@@ -310,6 +328,11 @@ func (s *Store) AcceptQuarantine(ctx context.Context, groupID int64, date time.T
 	if err := insertChangeSetTx(ctx, tx, &set); err != nil {
 		return changes.ChangeSet{}, err
 	}
+	if chatID != 0 {
+		if err := enqueueDeliveryTx(ctx, tx, chatID, set.ID, acceptedAt.UTC()); err != nil {
+			return changes.ChangeSet{}, err
+		}
+	}
 	if _, err := tx.Exec(ctx, `UPDATE schedule_heads SET snapshot_id=$3 WHERE group_id=$1 AND week_start=$2::date`, groupID, monday.Format(time.DateOnly), snapshotID); err != nil {
 		return changes.ChangeSet{}, err
 	}
@@ -320,6 +343,12 @@ func (s *Store) AcceptQuarantine(ctx context.Context, groupID int64, date time.T
 		return changes.ChangeSet{}, err
 	}
 	return set, nil
+}
+
+func enqueueDeliveryTx(ctx context.Context, tx pgx.Tx, chatID, changeSetID int64, now time.Time) error {
+	_, err := tx.Exec(ctx, `INSERT INTO notification_deliveries (chat_id,change_set_id,next_attempt_at)
+ VALUES ($1,$2,$3) ON CONFLICT (chat_id,change_set_id) DO NOTHING`, chatID, changeSetID, now)
+	return err
 }
 
 func massRemoval(old, new schedule.Schedule) bool {

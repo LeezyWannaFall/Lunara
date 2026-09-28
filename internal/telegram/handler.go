@@ -127,6 +127,21 @@ func formatChangeSet(set changeModel.ChangeSet, loc *time.Location) []string {
 	return append(result, current)
 }
 
+// NotificationText always produces one Telegram message. Large change sets are
+// summarized; full details remain available through /changes.
+func NotificationText(set changeModel.ChangeSet, loc *time.Location) string {
+	pages := formatChangeSet(set, loc)
+	if len(pages) == 1 {
+		return pages[0]
+	}
+	counts := map[changeModel.Kind]int{}
+	for _, change := range set.Changes {
+		counts[change.Kind]++
+	}
+	return fmt.Sprintf("<b>Изменения на сайте расписания</b>\n%s\n\nДобавлено: %d · изменено: %d · убрано: %d\nПодробности: /changes",
+		set.DetectedAt.In(loc).Format("02.01.2006 15:04"), counts[changeModel.Added], counts[changeModel.Modified], counts[changeModel.Removed])
+}
+
 func compactChange(change changeModel.Change) string {
 	lesson := change.New
 	if lesson == nil {

@@ -11,15 +11,19 @@ import (
 )
 
 type Config struct {
-	GroupID         int64
-	DatabaseURL     string
-	BootstrapWeeks  int
-	StartupTimeout  time.Duration
-	Calendar        schedule.Calendar
-	LogLevel        slog.Level
-	ShutdownTimeout time.Duration
-	TelegramToken   string
-	TelegramChatID  int64
+	GroupID              int64
+	DatabaseURL          string
+	BootstrapWeeks       int
+	StartupTimeout       time.Duration
+	Calendar             schedule.Calendar
+	LogLevel             slog.Level
+	ShutdownTimeout      time.Duration
+	TelegramToken        string
+	TelegramChatID       int64
+	WatchWeeks           int
+	WatchInterval        time.Duration
+	ConfirmationDelay    time.Duration
+	DeliveryPollInterval time.Duration
 }
 
 // Load accepts an environment reader to keep configuration tests isolated.
@@ -43,6 +47,22 @@ func Load(getenv func(string) string) (Config, error) {
 	c.BootstrapWeeks, err = strconv.Atoi(value("BOOTSTRAP_WEEKS", "2"))
 	if err != nil || c.BootstrapWeeks < 1 || c.BootstrapWeeks > 12 {
 		return c, fmt.Errorf("BOOTSTRAP_WEEKS must be between 1 and 12")
+	}
+	c.WatchWeeks, err = strconv.Atoi(value("WATCH_WEEKS", "2"))
+	if err != nil || c.WatchWeeks < 1 || c.WatchWeeks > 12 {
+		return c, fmt.Errorf("WATCH_WEEKS must be between 1 and 12")
+	}
+	c.WatchInterval, err = time.ParseDuration(value("WATCH_INTERVAL", "24h"))
+	if err != nil || c.WatchInterval <= 0 {
+		return c, fmt.Errorf("WATCH_INTERVAL must be a positive duration")
+	}
+	c.ConfirmationDelay, err = time.ParseDuration(value("CONFIRMATION_DELAY", "10m"))
+	if err != nil || c.ConfirmationDelay < 10*time.Minute {
+		return c, fmt.Errorf("CONFIRMATION_DELAY must be at least 10m")
+	}
+	c.DeliveryPollInterval, err = time.ParseDuration(value("DELIVERY_POLL_INTERVAL", "5s"))
+	if err != nil || c.DeliveryPollInterval <= 0 {
+		return c, fmt.Errorf("DELIVERY_POLL_INTERVAL must be a positive duration")
 	}
 	c.StartupTimeout, err = time.ParseDuration(value("STARTUP_TIMEOUT", "2m"))
 	if err != nil || c.StartupTimeout <= 0 {

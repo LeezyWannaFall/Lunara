@@ -120,7 +120,7 @@ func count(t *testing.T, pool *pgxpool.Pool, table string) int {
 func TestPostgresMigrations(t *testing.T) {
 	_, pool, provider := database(t)
 	ctx := context.Background()
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 3 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 4 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	if result, err := provider.Up(ctx); err != nil || len(result) != 0 {
@@ -129,20 +129,26 @@ func TestPostgresMigrations(t *testing.T) {
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 2 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 3 {
 		t.Fatalf("down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 2 {
 		t.Fatalf("second down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Down(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 1 {
 		t.Fatalf("third down version=%d err=%v", version, err)
+	}
+	if _, err := provider.Down(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if version, err := provider.GetDBVersion(ctx); err != nil || version != 0 {
+		t.Fatalf("fourth down version=%d err=%v", version, err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatal(err)
@@ -188,7 +194,7 @@ func TestPostgresChangeConfirmationAndHistory(t *testing.T) {
 	if got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, firstSeen.Add(9*time.Minute)); err != nil || got.Status != storage.ObservationPending {
 		t.Fatalf("early=%+v %v", got, err)
 	}
-	got, err := store.ObserveBatch(ctx, []schedule.Schedule{candidate}, firstSeen.Add(10*time.Minute))
+	got, err := store.ObserveBatchWithOptions(ctx, []schedule.Schedule{candidate}, firstSeen.Add(10*time.Minute), storage.ObserveOptions{ConfirmationDelay: 10 * time.Minute, DeliveryChatID: -100123})
 	if err != nil || got.Status != storage.ObservationConfirmed || got.ChangeSet == nil || len(got.ChangeSet.Changes) != 1 {
 		t.Fatalf("confirmed=%+v %v", got, err)
 	}
@@ -202,6 +208,58 @@ func TestPostgresChangeConfirmationAndHistory(t *testing.T) {
 	}
 	if count(t, pool, "schedule_candidates") != 0 {
 		t.Fatal("confirmed candidate retained")
+	}
+	delivery, err := store.ClaimDelivery(ctx, firstSeen.Add(10*time.Minute), time.Minute)
+	if err != nil || delivery.ChatID != -100123 || delivery.ChangeSet.ID != got.ChangeSet.ID || delivery.Attempts != 1 {
+		t.Fatalf("delivery=%+v err=%v", delivery, err)
+	}
+	if err := store.CompleteDelivery(ctx, delivery.ID, 777, firstSeen.Add(11*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimDelivery(ctx, firstSeen.Add(12*time.Minute), time.Minute); !errors.Is(err, storage.ErrNoDelivery) {
+		t.Fatalf("completed delivery reclaimed: %v", err)
+	}
+}
+
+func TestPostgresDeliveryLeaseCanBeReclaimed(t *testing.T) {
+	store, pool, _ := database(t)
+	ctx := context.Background()
+	base := week(t, "upper", "2026-09-28")
+	_, _ = store.SaveInitialWeeks(ctx, []schedule.Schedule{base})
+	candidate := base
+	candidate.Lessons = append([]schedule.Lesson(nil), base.Lessons...)
+	candidate.Lessons[0].Rooms = []schedule.Room{{Name: "lease-test"}}
+	candidate.Hash = strings.Repeat("9", 64)
+	candidate.CheckedAt = base.CheckedAt.Add(time.Hour)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	_, _ = store.ObserveBatch(ctx, []schedule.Schedule{candidate}, now)
+	_, err := store.ObserveBatchWithOptions(ctx, []schedule.Schedule{candidate}, now.Add(10*time.Minute), storage.ObserveOptions{ConfirmationDelay: 10 * time.Minute, DeliveryChatID: -100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.ClaimDelivery(ctx, now.Add(10*time.Minute), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimDelivery(ctx, now.Add(10*time.Minute+30*time.Second), time.Minute); !errors.Is(err, storage.ErrNoDelivery) {
+		t.Fatalf("active lease reclaimed: %v", err)
+	}
+	second, err := store.ClaimDelivery(ctx, now.Add(11*time.Minute), time.Minute)
+	if err != nil || second.ID != first.ID || second.Attempts != 2 {
+		t.Fatalf("reclaimed=%+v err=%v", second, err)
+	}
+	if err := store.RetryDelivery(ctx, second.ID, now.Add(20*time.Minute), "temporary", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ClaimDelivery(ctx, now.Add(19*time.Minute), time.Minute); !errors.Is(err, storage.ErrNoDelivery) {
+		t.Fatalf("early retry claimed: %v", err)
+	}
+	third, err := store.ClaimDelivery(ctx, now.Add(20*time.Minute), time.Minute)
+	if err != nil || third.Attempts != 3 {
+		t.Fatalf("retry=%+v err=%v", third, err)
+	}
+	if count(t, pool, "notification_deliveries") != 1 {
+		t.Fatal("duplicate delivery created")
 	}
 }
 
