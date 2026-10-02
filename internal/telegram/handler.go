@@ -236,9 +236,9 @@ func formatChange(change changeModel.Change) string {
 	}
 	switch change.Kind {
 	case changeModel.Added:
-		return "➕ <b>Добавлено занятие</b>\n\n" + formatLesson(*change.New) + mark
+		return "➕ <b>Добавлено занятие</b>\n" + formatChangeDate("Добавлено на", change.New.Date) + "\n\n" + formatLesson(*change.New) + mark
 	case changeModel.Removed:
-		return "➖ <b>Убрано из расписания</b>\n\n" + formatLesson(*change.Old) + mark
+		return "➖ <b>Убрано из расписания</b>\n" + formatChangeDate("Убрано с", change.Old.Date) + "\n\n" + formatLesson(*change.Old) + mark
 	case changeModel.Modified:
 		labels := make([]string, len(change.Fields))
 		for i, field := range change.Fields {
@@ -247,6 +247,10 @@ func formatChange(change changeModel.Change) string {
 		return "✏️ <b>Изменено: " + strings.Join(labels, ", ") + "</b>\n\n◽️ <b>Было</b>\n" + formatLesson(*change.Old) + "\n\n▫️ <b>Стало</b>\n" + formatLesson(*change.New)
 	}
 	return ""
+}
+
+func formatChangeDate(label string, date time.Time) string {
+	return fmt.Sprintf("📅 <b>%s:</b> %s, %s", label, weekdayTitle(date), humanDate(date))
 }
 
 func fieldName(field changeModel.Field) string {

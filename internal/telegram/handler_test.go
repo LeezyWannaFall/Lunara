@@ -168,3 +168,20 @@ func TestChangesHistoryFormattingAndCursor(t *testing.T) {
 		t.Fatalf("older=%v next=%d err=%v", messages, next, err)
 	}
 }
+
+func TestAddedAndRemovedChangesIncludeLessonDates(t *testing.T) {
+	oldLesson := published(t).Lessons[0]
+	oldLesson.Date = time.Date(2026, time.October, 1, 0, 0, 0, 0, oldLesson.Date.Location())
+	newLesson := oldLesson
+	newLesson.Date = time.Date(2026, time.October, 3, 0, 0, 0, 0, oldLesson.Date.Location())
+
+	removed := formatChange(changes.Change{Kind: changes.Removed, Old: &oldLesson})
+	if !strings.Contains(removed, "Убрано с:</b> Четверг, 1 октября 2026") {
+		t.Fatalf("removed change does not contain its date: %s", removed)
+	}
+
+	added := formatChange(changes.Change{Kind: changes.Added, New: &newLesson})
+	if !strings.Contains(added, "Добавлено на:</b> Суббота, 3 октября 2026") {
+		t.Fatalf("added change does not contain its date: %s", added)
+	}
+}
