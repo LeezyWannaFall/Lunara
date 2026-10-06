@@ -24,13 +24,14 @@ type Watcher struct {
 	weeks             int
 	interval          time.Duration
 	confirmationDelay time.Duration
+	majorChangeDelay  time.Duration
 	chatID            int64
 	logger            *slog.Logger
 	now               func() time.Time
 }
 
-func NewWatcher(source Source, repo WatchRepository, calendar schedule.Calendar, groupID int64, weeks int, interval, confirmationDelay time.Duration, chatID int64, logger *slog.Logger) (*Watcher, error) {
-	if source == nil || repo == nil || groupID <= 0 || weeks < 1 || weeks > 12 || interval <= 0 || confirmationDelay < storage.ConfirmationDelay {
+func NewWatcher(source Source, repo WatchRepository, calendar schedule.Calendar, groupID int64, weeks int, interval, confirmationDelay, majorChangeDelay time.Duration, chatID int64, logger *slog.Logger) (*Watcher, error) {
+	if source == nil || repo == nil || groupID <= 0 || weeks < 1 || weeks > 12 || interval <= 0 || confirmationDelay < storage.ConfirmationDelay || majorChangeDelay < confirmationDelay {
 		return nil, fmt.Errorf("invalid watcher configuration")
 	}
 	if err := calendar.Validate(); err != nil {
@@ -39,7 +40,7 @@ func NewWatcher(source Source, repo WatchRepository, calendar schedule.Calendar,
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Watcher{source: source, repo: repo, calendar: calendar, groupID: groupID, weeks: weeks, interval: interval, confirmationDelay: confirmationDelay, chatID: chatID, logger: logger, now: time.Now}, nil
+	return &Watcher{source: source, repo: repo, calendar: calendar, groupID: groupID, weeks: weeks, interval: interval, confirmationDelay: confirmationDelay, majorChangeDelay: majorChangeDelay, chatID: chatID, logger: logger, now: time.Now}, nil
 }
 
 func (w *Watcher) RunCycle(ctx context.Context) (storage.ObservationResult, error) {
@@ -68,7 +69,7 @@ func (w *Watcher) RunCycle(ctx context.Context) (storage.ObservationResult, erro
 	if _, err := w.repo.SaveInitialWeeks(ctx, weeks); err != nil {
 		return storage.ObservationResult{}, fmt.Errorf("ensure watcher baselines: %w", err)
 	}
-	return w.repo.ObserveBatchWithOptions(ctx, weeks, now, storage.ObserveOptions{ConfirmationDelay: w.confirmationDelay, DeliveryChatID: w.chatID})
+	return w.repo.ObserveBatchWithOptions(ctx, weeks, now, storage.ObserveOptions{ConfirmationDelay: w.confirmationDelay, MajorChangeDelay: w.majorChangeDelay, DeliveryChatID: w.chatID})
 }
 
 func (w *Watcher) Run(ctx context.Context) {
@@ -94,7 +95,10 @@ func (w *Watcher) Run(ctx context.Context) {
 		}
 		w.logger.Info("schedule watcher cycle completed", "status", result.Status, "changed_weeks", len(result.Weeks))
 		if result.Status == storage.ObservationPending {
-			delay = w.confirmationDelay
+			delay = result.RetryAfter
+			if delay <= 0 {
+				delay = w.confirmationDelay
+			}
 		} else {
 			delay = w.interval
 		}

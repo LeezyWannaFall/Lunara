@@ -38,6 +38,7 @@ type SetKind string
 
 const (
 	Regular          SetKind = "regular"
+	MajorChange      SetKind = "major_change"
 	FirstPublication SetKind = "first_publication"
 	ParserRebaseline SetKind = "parser_rebaseline"
 )

@@ -25,6 +25,7 @@ type Config struct {
 	WatchWeeks           int
 	WatchInterval        time.Duration
 	ConfirmationDelay    time.Duration
+	MajorChangeDelay     time.Duration
 	DeliveryPollInterval time.Duration
 	ExamInterval         time.Duration
 	ReminderPollInterval time.Duration
@@ -74,6 +75,10 @@ func Load(getenv func(string) string) (Config, error) {
 	c.ConfirmationDelay, err = time.ParseDuration(value("CONFIRMATION_DELAY", "10m"))
 	if err != nil || c.ConfirmationDelay < 10*time.Minute {
 		return c, fmt.Errorf("CONFIRMATION_DELAY must be at least 10m")
+	}
+	c.MajorChangeDelay, err = time.ParseDuration(value("MAJOR_CHANGE_CONFIRMATION_DELAY", "30m"))
+	if err != nil || c.MajorChangeDelay < c.ConfirmationDelay {
+		return c, fmt.Errorf("MAJOR_CHANGE_CONFIRMATION_DELAY must be at least CONFIRMATION_DELAY")
 	}
 	c.DeliveryPollInterval, err = time.ParseDuration(value("DELIVERY_POLL_INTERVAL", "5s"))
 	if err != nil || c.DeliveryPollInterval <= 0 {

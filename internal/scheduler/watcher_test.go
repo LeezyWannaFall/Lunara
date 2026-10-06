@@ -53,7 +53,7 @@ func watcherCalendar(t *testing.T) schedule.Calendar {
 
 func TestWatcherCycleFetchesCompleteBatch(t *testing.T) {
 	source, repo := &watchSource{}, &watchRepo{result: storage.ObservationResult{Status: storage.ObservationUnchanged}}
-	w, err := NewWatcher(source, repo, watcherCalendar(t), 1306, 3, time.Hour, 10*time.Minute, -100, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	w, err := NewWatcher(source, repo, watcherCalendar(t), 1306, 3, time.Hour, 10*time.Minute, 30*time.Minute, -100, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestWatcherCycleFetchesCompleteBatch(t *testing.T) {
 
 func TestWatcherSourceFailureResetsWholeRange(t *testing.T) {
 	source, repo := &watchSource{failAt: 2}, &watchRepo{}
-	w, _ := NewWatcher(source, repo, watcherCalendar(t), 1306, 3, time.Hour, 10*time.Minute, 0, nil)
+	w, _ := NewWatcher(source, repo, watcherCalendar(t), 1306, 3, time.Hour, 10*time.Minute, 30*time.Minute, 0, nil)
 	w.now = func() time.Time { return time.Date(2026, 9, 30, 12, 0, 0, 0, watcherCalendar(t).Location) }
 	if _, err := w.RunCycle(context.Background()); err == nil {
 		t.Fatal("source error hidden")

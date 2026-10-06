@@ -243,3 +243,21 @@ func TestIdenticalChangesAreGrouped(t *testing.T) {
 		t.Fatalf("identical changes were not grouped: %v", messages)
 	}
 }
+
+func TestMajorChangeNotificationIsClearlyMarked(t *testing.T) {
+	lesson := published(t).Lessons[0]
+	set := changes.ChangeSet{
+		DetectedAt: time.Date(2026, time.October, 6, 1, 44, 0, 0, time.UTC),
+		Kind:       changes.MajorChange,
+		Changes: []changes.Change{
+			{Kind: changes.Removed, Old: &lesson},
+			{Kind: changes.Added, New: &lesson},
+		},
+	}
+	message := NotificationText(set, lesson.Date.Location())
+	for _, want := range []string{"Расписание сильно изменилось", "Удалено занятий: 1", "Добавлено занятий: 1", "подтверждены повторной проверкой сайта"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("%q missing from major change notification: %s", want, message)
+		}
+	}
+}

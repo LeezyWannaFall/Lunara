@@ -182,6 +182,9 @@ func (h *Handler) Changes(ctx context.Context, argument string) ([]string, int64
 
 func formatChangeSet(set changeModel.ChangeSet, loc *time.Location) []string {
 	header := "🔔 <b>Изменения в расписании</b>"
+	if set.Kind == changeModel.MajorChange {
+		header += "\n\n" + majorChangeNotice(set)
+	}
 	footer := fmt.Sprintf("<i>Обнаружено: %s</i>", set.DetectedAt.In(loc).Format("02.01.2006 · 15:04"))
 	if set.Kind == changeModel.FirstPublication {
 		dates := make([]string, len(set.WeekStarts))
@@ -210,6 +213,14 @@ func formatChangeSet(set changeModel.ChangeSet, loc *time.Location) []string {
 	return append(result, current+"\n\n"+footer)
 }
 
+func majorChangeNotice(set changeModel.ChangeSet) string {
+	counts := map[changeModel.Kind]int{}
+	for _, change := range set.Changes {
+		counts[change.Kind]++
+	}
+	return fmt.Sprintf("⚠️ <b>Расписание сильно изменилось</b>\n\nУдалено занятий: %d\nДобавлено занятий: %d\n\n<i>Изменения подтверждены повторной проверкой сайта.</i>", counts[changeModel.Removed], counts[changeModel.Added])
+}
+
 // NotificationText always produces one Telegram message. Large change sets are
 // summarized; full details remain available through /changes.
 func NotificationText(set changeModel.ChangeSet, loc *time.Location) string {
@@ -221,7 +232,11 @@ func NotificationText(set changeModel.ChangeSet, loc *time.Location) string {
 	for _, change := range set.Changes {
 		counts[change.Kind]++
 	}
-	return fmt.Sprintf("🔔 <b>Изменения в расписании</b>\n\n➕ Добавлено: %d\n✏️ Изменено: %d\n➖ Убрано: %d\n\nПодробности: /changes\n\n<i>Обнаружено: %s</i>",
+	header := "🔔 <b>Изменения в расписании</b>"
+	if set.Kind == changeModel.MajorChange {
+		header += "\n\n" + majorChangeNotice(set)
+	}
+	return fmt.Sprintf("%s\n\n➕ Добавлено: %d\n✏️ Изменено: %d\n➖ Убрано: %d\n\nПодробности: /changes\n\n<i>Обнаружено: %s</i>", header,
 		counts[changeModel.Added], counts[changeModel.Modified], counts[changeModel.Removed], set.DetectedAt.In(loc).Format("02.01.2006 · 15:04"))
 }
 

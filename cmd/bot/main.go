@@ -81,7 +81,7 @@ func run() int {
 		logger.Error("Telegram initialization failed", "error", err)
 		return 1
 	}
-	watcher, err := scheduler.NewWatcher(source, store, cfg.Calendar, cfg.GroupID, cfg.WatchWeeks, cfg.WatchInterval, cfg.ConfirmationDelay, cfg.TelegramChatID, logger.With("component", "watcher"))
+	watcher, err := scheduler.NewWatcher(source, store, cfg.Calendar, cfg.GroupID, cfg.WatchWeeks, cfg.WatchInterval, cfg.ConfirmationDelay, cfg.MajorChangeDelay, cfg.TelegramChatID, logger.With("component", "watcher"))
 	if err != nil {
 		store.Close()
 		logger.Error("watcher initialization failed", "error", err)
