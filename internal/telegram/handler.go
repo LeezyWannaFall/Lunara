@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,7 +133,7 @@ func (h *Handler) ReminderNextWeek(ctx context.Context, now time.Time) ([]string
 }
 
 func formatExam(exam schedule.Exam) string {
-	line := fmt.Sprintf("📅 <b>%s, %s</b>\n⏰ <b>%s</b>\n📚 %s", weekdayTitle(exam.Date), humanDate(exam.Date), minute(exam.StartMinute), html.EscapeString(clip(exam.Subject, 200)))
+	line := fmt.Sprintf("📅 <b>%s, %s</b>\n⏰ <b>%s</b>\n📚 %s", weekdayTitle(exam.Date), humanDate(exam.Date), minute(exam.StartMinute), html.EscapeString(exam.Subject))
 	meta := []string{}
 	if exam.Kind != "" {
 		meta = append(meta, "📝 "+html.EscapeString(clip(exam.Kind, 60)))
@@ -180,29 +181,33 @@ func (h *Handler) Changes(ctx context.Context, argument string) ([]string, int64
 }
 
 func formatChangeSet(set changeModel.ChangeSet, loc *time.Location) []string {
-	header := fmt.Sprintf("🔔 <b>Изменения в расписании</b>\n🕘 %s", set.DetectedAt.In(loc).Format("02.01.2006 · 15:04"))
+	header := "🔔 <b>Изменения в расписании</b>"
+	footer := fmt.Sprintf("<i>Обнаружено: %s</i>", set.DetectedAt.In(loc).Format("02.01.2006 · 15:04"))
 	if set.Kind == changeModel.FirstPublication {
 		dates := make([]string, len(set.WeekStarts))
 		for i, week := range set.WeekStarts {
 			dates[i] = week.Format("02.01.2006")
 		}
-		return []string{header + "\n\n✅ Опубликовано расписание на недели:\n" + strings.Join(dates, ", ")}
+		return []string{header + "\n\n✅ Опубликовано расписание на недели:\n" + strings.Join(dates, ", ") + "\n\n" + footer}
 	}
 	result := []string{}
 	current := header
-	for _, change := range set.Changes {
-		block := formatChange(change)
-		if len([]rune(block)) > 3800 {
-			block = compactChange(change)
+	for _, group := range groupIdenticalChanges(set.Changes) {
+		block := formatChange(group.change)
+		if group.count > 1 {
+			block += fmt.Sprintf("\n<i>Одинаковых записей: %d</i>", group.count)
 		}
-		if len([]rune(current))+len([]rune(block))+2 > 4096 {
-			result = append(result, current)
+		if len([]rune(block)) > 3800 {
+			block = compactChange(group.change)
+		}
+		if len([]rune(current))+len([]rune(block))+len([]rune(footer))+4 > 4096 {
+			result = append(result, current+"\n\n"+footer)
 			current = header + " (продолжение)\n\n" + block
 		} else {
 			current += "\n\n" + block
 		}
 	}
-	return append(result, current)
+	return append(result, current+"\n\n"+footer)
 }
 
 // NotificationText always produces one Telegram message. Large change sets are
@@ -216,8 +221,8 @@ func NotificationText(set changeModel.ChangeSet, loc *time.Location) string {
 	for _, change := range set.Changes {
 		counts[change.Kind]++
 	}
-	return fmt.Sprintf("🔔 <b>Изменения в расписании</b>\n🕘 %s\n\n➕ Добавлено: %d\n✏️ Изменено: %d\n➖ Убрано: %d\n\nПодробности: /changes",
-		set.DetectedAt.In(loc).Format("02.01.2006 15:04"), counts[changeModel.Added], counts[changeModel.Modified], counts[changeModel.Removed])
+	return fmt.Sprintf("🔔 <b>Изменения в расписании</b>\n\n➕ Добавлено: %d\n✏️ Изменено: %d\n➖ Убрано: %d\n\nПодробности: /changes\n\n<i>Обнаружено: %s</i>",
+		counts[changeModel.Added], counts[changeModel.Modified], counts[changeModel.Removed], set.DetectedAt.In(loc).Format("02.01.2006 · 15:04"))
 }
 
 func compactChange(change changeModel.Change) string {
@@ -226,7 +231,7 @@ func compactChange(change changeModel.Change) string {
 		lesson = change.Old
 	}
 	mark := map[changeModel.Kind]string{changeModel.Added: "➕", changeModel.Removed: "➖", changeModel.Modified: "✏️"}[change.Kind]
-	return fmt.Sprintf("%s <b>%s</b> · %s · %s", mark, change.Kind, lesson.Date.Format("02.01.2006"), html.EscapeString(clip(lesson.Subject, 100)))
+	return fmt.Sprintf("%s <b>%s</b> · %s · %s", mark, change.Kind, lesson.Date.Format("02.01.2006"), html.EscapeString(lesson.Subject))
 }
 
 func formatChange(change changeModel.Change) string {
@@ -236,17 +241,80 @@ func formatChange(change changeModel.Change) string {
 	}
 	switch change.Kind {
 	case changeModel.Added:
-		return "➕ <b>Добавлено занятие</b>\n" + formatChangeDate("Добавлено на", change.New.Date) + "\n\n" + formatLesson(*change.New) + mark
+		return "➕ <b>Добавлено занятие</b>\n" + formatChangeDate("Добавлено на", change.New.Date) + "\n\n" + expandableQuote(formatLesson(*change.New)) + mark
 	case changeModel.Removed:
-		return "➖ <b>Убрано из расписания</b>\n" + formatChangeDate("Убрано с", change.Old.Date) + "\n\n" + formatLesson(*change.Old) + mark
+		return "➖ <b>Убрано из расписания</b>\n" + formatChangeDate("Убрано с", change.Old.Date) + "\n\n" + expandableQuote(formatLesson(*change.Old)) + mark
 	case changeModel.Modified:
 		labels := make([]string, len(change.Fields))
 		for i, field := range change.Fields {
 			labels[i] = fieldName(field)
 		}
-		return "✏️ <b>Изменено: " + strings.Join(labels, ", ") + "</b>\n\n◽️ <b>Было</b>\n" + formatLesson(*change.Old) + "\n\n▫️ <b>Стало</b>\n" + formatLesson(*change.New)
+		summary := make([]string, 0, len(change.Fields))
+		for _, field := range change.Fields {
+			summary = append(summary, formatFieldTransition(field, *change.Old, *change.New))
+		}
+		details := "◽️ <b>Было</b>\n" + formatLesson(*change.Old) + "\n\n▫️ <b>Стало</b>\n" + formatLesson(*change.New)
+		return "✏️ <b>Изменено: " + strings.Join(labels, ", ") + "</b>\n" + formatChangeDate("Дата занятия", change.New.Date) + "\n" + strings.Join(summary, "\n") + "\n\n" + expandableQuote(details) + mark
 	}
 	return ""
+}
+
+type identicalChangeGroup struct {
+	change changeModel.Change
+	count  int
+}
+
+func groupIdenticalChanges(values []changeModel.Change) []identicalChangeGroup {
+	groups := make([]identicalChangeGroup, 0, len(values))
+	for _, value := range values {
+		matched := false
+		for i := range groups {
+			if changesEqual(groups[i].change, value) {
+				groups[i].count++
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			groups = append(groups, identicalChangeGroup{change: value, count: 1})
+		}
+	}
+	return groups
+}
+
+func changesEqual(a, b changeModel.Change) bool {
+	return a.Kind == b.Kind && a.Ambiguous == b.Ambiguous && slices.Equal(a.Fields, b.Fields) && lessonsEqual(a.Old, b.Old) && lessonsEqual(a.New, b.New)
+}
+
+func lessonsEqual(a, b *schedule.Lesson) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Date.Equal(b.Date) && numberEqual(a.Number, b.Number) && a.StartMinute == b.StartMinute && a.EndMinute == b.EndMinute && a.Subject == b.Subject && a.Type == b.Type && a.RawType == b.RawType && a.Subgroup == b.Subgroup && slices.Equal(a.Teachers, b.Teachers) && slices.Equal(a.Rooms, b.Rooms)
+}
+
+func numberEqual(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func formatFieldTransition(field changeModel.Field, oldLesson, newLesson schedule.Lesson) string {
+	switch field {
+	case changeModel.FieldNumber:
+		return "⏰ Пара: " + lessonNumber(oldLesson) + " → " + lessonNumber(newLesson)
+	case changeModel.FieldTime:
+		return fmt.Sprintf("⏰ Время: %s–%s → %s–%s", minute(oldLesson.StartMinute), minute(oldLesson.EndMinute), minute(newLesson.StartMinute), minute(newLesson.EndMinute))
+	case changeModel.FieldType:
+		return "🎓 Тип: " + typeName(oldLesson) + " → " + typeName(newLesson)
+	case changeModel.FieldTeachers:
+		return "👤 Преподаватель: " + formatTeachers(oldLesson.Teachers) + " → " + formatTeachers(newLesson.Teachers)
+	case changeModel.FieldRooms:
+		return "📍 Аудитория: " + formatRooms(oldLesson.Rooms) + " → " + formatRooms(newLesson.Rooms)
+	default:
+		return html.EscapeString(string(field))
+	}
 }
 
 func formatChangeDate(label string, date time.Time) string {
@@ -315,7 +383,7 @@ func (h *Handler) day(ctx context.Context, date time.Time) ([]string, error) {
 	if len(lessons) == 0 {
 		return []string{header + "\n\n🌿 Занятий нет — можно выдохнуть."}, nil
 	}
-	return formatLessonChunks(header, lessons), nil
+	return formatExpandableLessonChunks(header, lessons), nil
 }
 
 func (h *Handler) week(ctx context.Context, date time.Time) ([]string, error) {
@@ -334,15 +402,28 @@ func (h *Handler) week(ctx context.Context, date time.Time) ([]string, error) {
 		key := lesson.Date.In(h.calendar.Location).Format(time.DateOnly)
 		byDate[key] = append(byDate[key], lesson)
 	}
-	result := []string{fmt.Sprintf("🗓 <b>%s — %s</b>\n%s", humanDate(week.Monday), humanDate(week.Monday.AddDate(0, 0, 6)), weekBadge(week.WeekType))}
+	header := fmt.Sprintf("🗓 <b>%s</b>\n%s", weekRange(week.Monday), weekBadge(week.WeekType))
+	result := []string{}
+	current := header
 	for day := 0; day < 7; day++ {
 		date := week.Monday.AddDate(0, 0, day)
 		lessons := byDate[date.Format(time.DateOnly)]
 		if len(lessons) > 0 {
-			result = append(result, formatLessonChunks(fmt.Sprintf("📅 <b>%s, %s</b>", weekdayTitle(date), humanDate(date)), lessons)...)
+			body := make([]string, len(lessons))
+			for i, lesson := range lessons {
+				body[i] = formatWeekLesson(lesson)
+			}
+			block := fmt.Sprintf("📅 <b>%s, %s</b>\n%s", weekdayTitle(date), humanDateWithoutYear(date), expandableQuote(strings.Join(body, "\n\n")))
+			candidate := current + "\n\n" + block
+			if len([]rune(candidate)) > 4096 {
+				result = append(result, current)
+				current = header + " (продолжение)\n\n" + block
+			} else {
+				current = candidate
+			}
 		}
 	}
-	return result, nil
+	return append(result, current), nil
 }
 
 func (h *Handler) next(ctx context.Context, now time.Time) ([]string, error) {
@@ -405,37 +486,64 @@ func formatLessonChunks(header string, lessons []schedule.Lesson) []string {
 	return append(chunks, current)
 }
 
-func formatLesson(lesson schedule.Lesson) string {
-	label := "Пара"
-	if lesson.Number != nil {
-		label = fmt.Sprintf("%d пара", *lesson.Number)
+func formatExpandableLessonChunks(header string, lessons []schedule.Lesson) []string {
+	chunks := []string{}
+	body := []string{}
+	for i := range lessons {
+		var previous *schedule.Lesson
+		if i > 0 {
+			previous = &lessons[i-1]
+		}
+		block := formatLessonCompared(lessons[i], previous)
+		candidateBody := append(append([]string{}, body...), block)
+		candidate := header + "\n\n" + expandableQuote(strings.Join(candidateBody, "\n\n"))
+		if len([]rune(candidate)) > 4096 && len(body) > 0 {
+			chunks = append(chunks, header+"\n\n"+expandableQuote(strings.Join(body, "\n\n")))
+			header += " (продолжение)"
+			body = []string{formatLessonCompared(lessons[i], nil)}
+			continue
+		}
+		body = candidateBody
 	}
-	line := fmt.Sprintf("⏰ <b>%s · %s–%s</b>\n📚 %s", label, minute(lesson.StartMinute), minute(lesson.EndMinute), html.EscapeString(clip(lesson.Subject, 200)))
-	meta := []string{"🎓 " + typeName(lesson)}
+	return append(chunks, header+"\n\n"+expandableQuote(strings.Join(body, "\n\n")))
+}
+
+func formatWeekLesson(lesson schedule.Lesson) string {
+	return fmt.Sprintf("⏰ <b>%s · %s–%s</b>\n📚 %s", lessonNumber(lesson), minute(lesson.StartMinute), minute(lesson.EndMinute), html.EscapeString(lesson.Subject))
+}
+
+func formatLesson(lesson schedule.Lesson) string {
+	return formatLessonCompared(lesson, nil)
+}
+
+func formatLessonCompared(lesson schedule.Lesson, previous *schedule.Lesson) string {
+	line := fmt.Sprintf("⏰ <b>%s · %s–%s · %s</b>\n📚 %s", lessonNumber(lesson), minute(lesson.StartMinute), minute(lesson.EndMinute), typeName(lesson), html.EscapeString(lesson.Subject))
+	meta := []string{}
 	if lesson.Subgroup != "" {
 		meta = append(meta, "👥 Подгруппа "+html.EscapeString(clip(lesson.Subgroup, 40)))
 	}
-	if len(lesson.Teachers) > 0 {
-		limit := min(len(lesson.Teachers), 3)
-		teachers := make([]string, limit)
-		for i, teacher := range lesson.Teachers[:limit] {
-			teachers[i] = html.EscapeString(clip(teacher, 40))
+	sameTeachers := previous != nil && len(lesson.Teachers) > 0 && slices.Equal(lesson.Teachers, previous.Teachers)
+	sameRooms := previous != nil && len(lesson.Rooms) > 0 && slices.Equal(lesson.Rooms, previous.Rooms)
+	if sameTeachers && sameRooms {
+		meta = append(meta, "↳ преподаватель и аудитория те же")
+	} else {
+		if len(lesson.Teachers) > 0 {
+			if sameTeachers {
+				meta = append(meta, "👤 тот же преподаватель")
+			} else {
+				meta = append(meta, "👤 "+formatTeachers(lesson.Teachers))
+			}
 		}
-		if len(lesson.Teachers) > limit {
-			teachers = append(teachers, "…")
+		if len(lesson.Rooms) > 0 {
+			if sameRooms {
+				meta = append(meta, "📍 та же аудитория")
+			} else {
+				meta = append(meta, "📍 "+formatRooms(lesson.Rooms))
+			}
 		}
-		meta = append(meta, "👤 "+strings.Join(teachers, ", "))
 	}
-	if len(lesson.Rooms) > 0 {
-		rooms := make([]string, 0, min(len(lesson.Rooms), 3))
-		for _, room := range lesson.Rooms[:min(len(lesson.Rooms), 3)] {
-			value := formatRoom(room)
-			rooms = append(rooms, value)
-		}
-		if len(lesson.Rooms) > 3 {
-			rooms = append(rooms, "…")
-		}
-		meta = append(meta, "📍 "+strings.Join(rooms, ", "))
+	if len(meta) == 0 {
+		return line
 	}
 	return line + "\n" + strings.Join(meta, "\n")
 }
@@ -453,7 +561,40 @@ func formatRoom(room schedule.Room) string {
 	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "map.miigaik.ru" || parsed.User != nil {
 		return name
 	}
-	return name + ` · <a href="` + html.EscapeString(parsed.String()) + `">Посмотреть на карте</a>`
+	return name + ` · <a href="` + html.EscapeString(parsed.String()) + `">Карта</a>`
+}
+
+func formatTeachers(teachers []string) string {
+	if len(teachers) == 0 {
+		return "не указан"
+	}
+	values := make([]string, len(teachers))
+	for i, teacher := range teachers {
+		values[i] = html.EscapeString(teacher)
+	}
+	return strings.Join(values, ", ")
+}
+
+func formatRooms(rooms []schedule.Room) string {
+	if len(rooms) == 0 {
+		return "не указана"
+	}
+	values := make([]string, len(rooms))
+	for i, room := range rooms {
+		values[i] = formatRoom(room)
+	}
+	return strings.Join(values, ", ")
+}
+
+func lessonNumber(lesson schedule.Lesson) string {
+	if lesson.Number == nil {
+		return "Пара"
+	}
+	return fmt.Sprintf("%d пара", *lesson.Number)
+}
+
+func expandableQuote(value string) string {
+	return "<blockquote expandable>" + value + "</blockquote>"
 }
 
 func sameDate(a, b time.Time, loc *time.Location) bool {
@@ -476,8 +617,23 @@ func weekdayTitle(value time.Time) string {
 	return [...]string{"Воскресенье", "Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"}[value.Weekday()]
 }
 func humanDate(value time.Time) string {
-	months := [...]string{"", "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"}
-	return fmt.Sprintf("%d %s %d", value.Day(), months[value.Month()], value.Year())
+	return fmt.Sprintf("%d %s %d", value.Day(), monthName(value.Month()), value.Year())
+}
+func humanDateWithoutYear(value time.Time) string {
+	return fmt.Sprintf("%d %s", value.Day(), monthName(value.Month()))
+}
+func monthName(value time.Month) string {
+	return [...]string{"", "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"}[value]
+}
+func weekRange(monday time.Time) string {
+	sunday := monday.AddDate(0, 0, 6)
+	if monday.Year() == sunday.Year() && monday.Month() == sunday.Month() {
+		return fmt.Sprintf("%d–%d %s %d", monday.Day(), sunday.Day(), monthName(sunday.Month()), sunday.Year())
+	}
+	if monday.Year() == sunday.Year() {
+		return fmt.Sprintf("%s — %s %d", humanDateWithoutYear(monday), humanDateWithoutYear(sunday), sunday.Year())
+	}
+	return humanDate(monday) + " — " + humanDate(sunday)
 }
 func weekBadge(value schedule.WeekType) string {
 	if value == schedule.Upper {

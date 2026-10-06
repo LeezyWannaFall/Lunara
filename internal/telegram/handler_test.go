@@ -88,7 +88,7 @@ func TestCommandsAndHTMLFormatting(t *testing.T) {
 	}
 	messages, _ := h.Handle(context.Background(), "/today@lunarabot", "LunaraBot")
 	joined := strings.Join(messages, "\n")
-	if !strings.Contains(joined, "📅 <b>Понедельник, 28 сентября 2026</b>") || !strings.Contains(joined, "⏰ <b>2 пара · 10:00–11:30</b>") || !strings.Contains(joined, "📚 Math &lt;advanced&gt;") || !strings.Contains(joined, "👤 A &amp; B") || !strings.Contains(joined, `📍 101 (A) · <a href="https://map.miigaik.ru/#id=101">Посмотреть на карте</a>`) {
+	if !strings.Contains(joined, "📅 <b>Понедельник, 28 сентября 2026</b>") || !strings.Contains(joined, "<blockquote expandable>") || !strings.Contains(joined, "⏰ <b>2 пара · 10:00–11:30 · лекция</b>") || !strings.Contains(joined, "📚 Math &lt;advanced&gt;") || !strings.Contains(joined, "👤 A &amp; B") || !strings.Contains(joined, `📍 101 (A) · <a href="https://map.miigaik.ru/#id=101">Карта</a>`) {
 		t.Fatalf("HTML not escaped: %s", joined)
 	}
 	help, _ := h.Handle(context.Background(), "/help", "bot")
@@ -160,7 +160,7 @@ func TestChangesHistoryFormattingAndCursor(t *testing.T) {
 		{ID: 1, GroupID: 1306, DetectedAt: time.Now(), WeekStarts: []time.Time{oldLesson.Date}, Kind: changes.FirstPublication},
 	}}
 	messages, next, err := h.Changes(context.Background(), "")
-	if err != nil || next != 2 || len(messages) != 1 || !strings.Contains(messages[0], "аудитория") || !strings.Contains(messages[0], "Было") {
+	if err != nil || next != 2 || len(messages) != 1 || !strings.Contains(messages[0], "Аудитория: 101 (A)") || !strings.Contains(messages[0], "Дата занятия:</b> Понедельник, 28 сентября 2026") || !strings.Contains(messages[0], "<blockquote expandable>◽️ <b>Было</b>") || !strings.Contains(messages[0], "<i>Обнаружено:") {
 		t.Fatalf("messages=%v next=%d err=%v", messages, next, err)
 	}
 	messages, next, err = h.Changes(context.Background(), "2")
@@ -176,12 +176,70 @@ func TestAddedAndRemovedChangesIncludeLessonDates(t *testing.T) {
 	newLesson.Date = time.Date(2026, time.October, 3, 0, 0, 0, 0, oldLesson.Date.Location())
 
 	removed := formatChange(changes.Change{Kind: changes.Removed, Old: &oldLesson})
-	if !strings.Contains(removed, "Убрано с:</b> Четверг, 1 октября 2026") {
+	if !strings.Contains(removed, "Убрано с:</b> Четверг, 1 октября 2026") || !strings.Contains(removed, "<blockquote expandable>") {
 		t.Fatalf("removed change does not contain its date: %s", removed)
 	}
 
 	added := formatChange(changes.Change{Kind: changes.Added, New: &newLesson})
-	if !strings.Contains(added, "Добавлено на:</b> Суббота, 3 октября 2026") {
+	if !strings.Contains(added, "Добавлено на:</b> Суббота, 3 октября 2026") || !strings.Contains(added, "<blockquote expandable>") {
 		t.Fatalf("added change does not contain its date: %s", added)
+	}
+}
+
+func TestWeekUsesOneCompactExpandableMessage(t *testing.T) {
+	week := published(t)
+	h := testHandler(t, map[string]schedule.Schedule{"2026-09-28": week})
+	messages, err := h.Handle(context.Background(), "/week", "bot")
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("messages=%v err=%v", messages, err)
+	}
+	message := messages[0]
+	if !strings.Contains(message, "28 сентября — 4 октября 2026") || !strings.Contains(message, "Понедельник, 28 сентября") || !strings.Contains(message, "<blockquote expandable>") {
+		t.Fatalf("week header or expandable days missing: %s", message)
+	}
+	if !strings.Contains(message, "Math &lt;advanced&gt;") || strings.Contains(message, "A &amp; B") || strings.Contains(message, "101 (A)") || strings.Contains(message, "лекция") {
+		t.Fatalf("week is not compact or lost the full subject: %s", message)
+	}
+}
+
+func TestDayCompactsRepeatedTeacherAndRoom(t *testing.T) {
+	week := published(t)
+	second := week.Lessons[0]
+	n := 3
+	second.Number = &n
+	second.StartMinute = 750
+	second.EndMinute = 840
+	second.Subject = "Another full subject"
+	week.Lessons = append(week.Lessons, second)
+	h := testHandler(t, map[string]schedule.Schedule{"2026-09-28": week})
+	messages, err := h.Handle(context.Background(), "/today", "bot")
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("messages=%v err=%v", messages, err)
+	}
+	if strings.Count(messages[0], "A &amp; B") != 1 || strings.Count(messages[0], "101 (A)") != 1 || !strings.Contains(messages[0], "преподаватель и аудитория те же") {
+		t.Fatalf("repeated details were not compacted: %s", messages[0])
+	}
+}
+
+func TestModifiedChangeShowsDateSummaryAndExpandableDetails(t *testing.T) {
+	oldLesson := published(t).Lessons[0]
+	newLesson := oldLesson
+	newLesson.Type = schedule.Practice
+	newLesson.Rooms = []schedule.Room{{Name: "414", Building: "Главный корпус"}}
+	message := formatChange(changes.Change{Kind: changes.Modified, Old: &oldLesson, New: &newLesson, Fields: []changes.Field{changes.FieldType, changes.FieldRooms}})
+	for _, want := range []string{"Дата занятия:</b> Понедельник, 28 сентября 2026", "Тип: лекция → практика", "Аудитория: 101 (A)", "→ 414 (Главный корпус)", "<blockquote expandable>"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("%q missing from modified change: %s", want, message)
+		}
+	}
+}
+
+func TestIdenticalChangesAreGrouped(t *testing.T) {
+	lesson := published(t).Lessons[0]
+	change := changes.Change{Kind: changes.Removed, Old: &lesson}
+	set := changes.ChangeSet{DetectedAt: time.Now(), Kind: changes.Regular, Changes: []changes.Change{change, change}}
+	messages := formatChangeSet(set, lesson.Date.Location())
+	if len(messages) != 1 || strings.Count(messages[0], "Убрано из расписания") != 1 || !strings.Contains(messages[0], "Одинаковых записей: 2") {
+		t.Fatalf("identical changes were not grouped: %v", messages)
 	}
 }
