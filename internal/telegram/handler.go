@@ -193,15 +193,19 @@ func formatChangeSet(set changeModel.ChangeSet, loc *time.Location) []string {
 		}
 		return []string{header + "\n\n✅ Опубликовано расписание на недели:\n" + strings.Join(dates, ", ") + "\n\n" + footer}
 	}
+	items := presentChanges(set.Changes)
+	if len(items) > 0 {
+		header += fmt.Sprintf("\n%s · %s", changeCountLabel(len(items)), changeDateRange(items))
+	}
 	result := []string{}
 	current := header
-	for _, group := range groupIdenticalChanges(set.Changes) {
-		block := formatChange(group.change)
-		if group.count > 1 {
-			block += fmt.Sprintf("\n<i>Одинаковых записей: %d</i>", group.count)
+	for _, item := range items {
+		block := formatPresentedChange(item)
+		if item.count > 1 {
+			block += fmt.Sprintf("\n<i>Одинаковых записей: %d</i>", item.count)
 		}
 		if len([]rune(block)) > 3800 {
-			block = compactChange(group.change)
+			block = compactPresentedChange(item)
 		}
 		if len([]rune(current))+len([]rune(block))+len([]rune(footer))+4 > 4096 {
 			result = append(result, current+"\n\n"+footer)
@@ -240,13 +244,95 @@ func NotificationText(set changeModel.ChangeSet, loc *time.Location) string {
 		counts[changeModel.Added], counts[changeModel.Modified], counts[changeModel.Removed], set.DetectedAt.In(loc).Format("02.01.2006 · 15:04"))
 }
 
-func compactChange(change changeModel.Change) string {
-	lesson := change.New
-	if lesson == nil {
-		lesson = change.Old
+type presentedChange struct {
+	change *changeModel.Change
+	old    *schedule.Lesson
+	new    *schedule.Lesson
+	moved  bool
+	count  int
+}
+
+func presentChanges(values []changeModel.Change) []presentedChange {
+	groups := groupIdenticalChanges(values)
+	used := make([]bool, len(groups))
+	result := make([]presentedChange, 0, len(groups))
+	for i, group := range groups {
+		if used[i] {
+			continue
+		}
+		if (group.change.Kind == changeModel.Removed || group.change.Kind == changeModel.Added) && !group.change.Ambiguous {
+			wanted := changeModel.Added
+			if group.change.Kind == changeModel.Added {
+				wanted = changeModel.Removed
+			}
+			matches := moveMatches(groups, used, i, wanted)
+			if len(matches) == 1 && len(moveMatches(groups, used, matches[0], group.change.Kind)) == 1 && group.count == groups[matches[0]].count {
+				other := groups[matches[0]]
+				oldLesson, newLesson := group.change.Old, other.change.New
+				if group.change.Kind == changeModel.Added {
+					oldLesson, newLesson = other.change.Old, group.change.New
+				}
+				used[i], used[matches[0]] = true, true
+				result = append(result, presentedChange{old: oldLesson, new: newLesson, moved: true, count: group.count})
+				continue
+			}
+		}
+		used[i] = true
+		value := group.change
+		result = append(result, presentedChange{change: &value, old: value.Old, new: value.New, count: group.count})
 	}
-	mark := map[changeModel.Kind]string{changeModel.Added: "➕", changeModel.Removed: "➖", changeModel.Modified: "✏️"}[change.Kind]
-	return fmt.Sprintf("%s <b>%s</b> · %s · %s", mark, change.Kind, lesson.Date.Format("02.01.2006"), html.EscapeString(lesson.Subject))
+	return result
+}
+
+func moveMatches(groups []identicalChangeGroup, used []bool, source int, wanted changeModel.Kind) []int {
+	var sourceLesson *schedule.Lesson
+	if groups[source].change.Kind == changeModel.Removed {
+		sourceLesson = groups[source].change.Old
+	} else {
+		sourceLesson = groups[source].change.New
+	}
+	result := []int{}
+	for i, group := range groups {
+		if i == source || used[i] || group.change.Kind != wanted || group.change.Ambiguous {
+			continue
+		}
+		var candidate *schedule.Lesson
+		if wanted == changeModel.Removed {
+			candidate = group.change.Old
+		} else {
+			candidate = group.change.New
+		}
+		if moveIdentity(sourceLesson, candidate) {
+			result = append(result, i)
+		}
+	}
+	return result
+}
+
+func moveIdentity(a, b *schedule.Lesson) bool {
+	return a != nil && b != nil && a.Subject == b.Subject && a.Subgroup == b.Subgroup && slices.Equal(a.Teachers, b.Teachers) && (!a.Date.Equal(b.Date) || a.StartMinute != b.StartMinute || !numberEqual(a.Number, b.Number))
+}
+
+func formatPresentedChange(item presentedChange) string {
+	if item.moved {
+		return formatMovedChange(*item.old, *item.new)
+	}
+	return formatChange(*item.change)
+}
+
+func compactPresentedChange(item presentedChange) string {
+	lesson := item.new
+	mark := "🔄"
+	label := "перенесено"
+	if !item.moved {
+		lesson = item.change.New
+		if lesson == nil {
+			lesson = item.change.Old
+		}
+		mark = map[changeModel.Kind]string{changeModel.Added: "➕", changeModel.Removed: "➖", changeModel.Modified: "✏️"}[item.change.Kind]
+		label = string(item.change.Kind)
+	}
+	return fmt.Sprintf("%s <b>%s</b> · %s · %s", mark, label, lesson.Date.Format("02.01.2006"), html.EscapeString(lesson.Subject))
 }
 
 func formatChange(change changeModel.Change) string {
@@ -256,22 +342,50 @@ func formatChange(change changeModel.Change) string {
 	}
 	switch change.Kind {
 	case changeModel.Added:
-		return "➕ <b>Добавлено занятие</b>\n" + formatChangeDate("Добавлено на", change.New.Date) + "\n\n" + expandableQuote(formatLesson(*change.New)) + mark
+		return "➕ <b>Добавлено занятие</b>\n📚 " + html.EscapeString(change.New.Subject) + "\n📅 " + shortDate(change.New.Date) + "\n⏰ " + lessonSlot(*change.New) + "\n\n" + moreDetails(formatLessonMetadata(*change.New)) + mark
 	case changeModel.Removed:
-		return "➖ <b>Убрано из расписания</b>\n" + formatChangeDate("Убрано с", change.Old.Date) + "\n\n" + expandableQuote(formatLesson(*change.Old)) + mark
+		return "➖ <b>Убрано из расписания</b>\n📚 " + html.EscapeString(change.Old.Subject) + "\n📅 " + shortDate(change.Old.Date) + "\n⏰ " + lessonSlot(*change.Old) + "\n\n" + moreDetails(formatLessonMetadata(*change.Old)) + mark
 	case changeModel.Modified:
-		labels := make([]string, len(change.Fields))
-		for i, field := range change.Fields {
-			labels[i] = fieldName(field)
+		title := "✏️ <b>Изменено занятие</b>"
+		if len(change.Fields) == 1 && change.Fields[0] == changeModel.FieldRooms {
+			title = "🏫 <b>Изменилась аудитория</b>"
 		}
 		summary := make([]string, 0, len(change.Fields))
+		if containsField(change.Fields, changeModel.FieldNumber) || containsField(change.Fields, changeModel.FieldTime) {
+			summary = append(summary, "⏰ "+lessonSlot(*change.Old)+" → "+lessonSlot(*change.New))
+		}
 		for _, field := range change.Fields {
+			if field == changeModel.FieldNumber || field == changeModel.FieldTime {
+				continue
+			}
 			summary = append(summary, formatFieldTransition(field, *change.Old, *change.New))
 		}
-		details := "◽️ <b>Было</b>\n" + formatLesson(*change.Old) + "\n\n▫️ <b>Стало</b>\n" + formatLesson(*change.New)
-		return "✏️ <b>Изменено: " + strings.Join(labels, ", ") + "</b>\n" + formatChangeDate("Дата занятия", change.New.Date) + "\n" + strings.Join(summary, "\n") + "\n\n" + expandableQuote(details) + mark
+		result := title + "\n📚 " + html.EscapeString(change.New.Subject) + "\n📅 " + shortDate(change.New.Date)
+		if len(change.Fields) == 1 && change.Fields[0] == changeModel.FieldRooms {
+			result += " · " + lessonSlot(*change.New)
+		}
+		result += "\n" + strings.Join(summary, "\n")
+		if len(change.Fields) > 1 {
+			if details := unchangedDetails(*change.New, change.Fields); details != "" {
+				result += "\n\n" + moreDetails(details)
+			}
+		}
+		return result + mark
 	}
 	return ""
+}
+
+func formatMovedChange(oldLesson, newLesson schedule.Lesson) string {
+	result := "🔄 <b>Перенесено занятие</b>\n📚 " + html.EscapeString(newLesson.Subject)
+	result += "\n📅 " + shortDate(oldLesson.Date) + " → " + shortDate(newLesson.Date)
+	result += "\n⏰ " + lessonSlot(oldLesson) + " → " + lessonSlot(newLesson)
+	if oldLesson.Type != newLesson.Type || oldLesson.RawType != newLesson.RawType {
+		result += "\n🎓 " + typeName(oldLesson) + " → " + typeName(newLesson)
+	}
+	if !slices.Equal(oldLesson.Rooms, newLesson.Rooms) {
+		result += "\n📍 " + formatRoomsPlain(oldLesson.Rooms) + " → " + formatRooms(newLesson.Rooms)
+	}
+	return result + "\n\n" + moreDetails(formatLessonMetadata(newLesson))
 }
 
 type identicalChangeGroup struct {
@@ -315,6 +429,99 @@ func numberEqual(a, b *int) bool {
 	return *a == *b
 }
 
+func containsField(fields []changeModel.Field, wanted changeModel.Field) bool {
+	return slices.Contains(fields, wanted)
+}
+
+func lessonSlot(lesson schedule.Lesson) string {
+	return fmt.Sprintf("%s · %s–%s", lessonNumber(lesson), minute(lesson.StartMinute), minute(lesson.EndMinute))
+}
+
+func shortDate(date time.Time) string {
+	weekdays := [...]string{"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
+	return fmt.Sprintf("%s, %s", weekdays[date.Weekday()], humanDateWithoutYear(date))
+}
+
+func formatLessonMetadata(lesson schedule.Lesson) string {
+	values := []string{"🎓 " + typeName(lesson)}
+	if lesson.Subgroup != "" {
+		values = append(values, "👥 "+html.EscapeString(lesson.Subgroup))
+	}
+	if len(lesson.Teachers) > 0 {
+		values = append(values, "👤 "+formatTeachers(lesson.Teachers))
+	}
+	if len(lesson.Rooms) > 0 {
+		values = append(values, "📍 "+formatRooms(lesson.Rooms))
+	}
+	return strings.Join(values, "\n")
+}
+
+func unchangedDetails(lesson schedule.Lesson, changed []changeModel.Field) string {
+	values := []string{}
+	if !containsField(changed, changeModel.FieldType) {
+		values = append(values, "🎓 "+typeName(lesson))
+	}
+	if lesson.Subgroup != "" {
+		values = append(values, "👥 "+html.EscapeString(lesson.Subgroup))
+	}
+	if len(lesson.Teachers) > 0 && !containsField(changed, changeModel.FieldTeachers) {
+		values = append(values, "👤 "+formatTeachers(lesson.Teachers))
+	}
+	if len(lesson.Rooms) > 0 && !containsField(changed, changeModel.FieldRooms) {
+		values = append(values, "📍 "+formatRooms(lesson.Rooms))
+	}
+	return strings.Join(values, "\n")
+}
+
+func moreDetails(value string) string {
+	return "<i>Подробнее</i>\n" + expandableQuote(value)
+}
+
+func changeCountLabel(count int) string {
+	word := "изменений"
+	if count%10 == 1 && count%100 != 11 {
+		word = "изменение"
+	} else if count%10 >= 2 && count%10 <= 4 && (count%100 < 12 || count%100 > 14) {
+		word = "изменения"
+	}
+	return fmt.Sprintf("%d %s", count, word)
+}
+
+func changeDateRange(items []presentedChange) string {
+	var first, last time.Time
+	for _, item := range items {
+		for _, date := range []time.Time{lessonDate(item.old), lessonDate(item.new)} {
+			if date.IsZero() {
+				continue
+			}
+			if first.IsZero() || date.Before(first) {
+				first = date
+			}
+			if last.IsZero() || date.After(last) {
+				last = date
+			}
+		}
+	}
+	if sameCalendarDate(first, last) {
+		return humanDateWithoutYear(first)
+	}
+	if first.Year() == last.Year() && first.Month() == last.Month() {
+		return fmt.Sprintf("%d–%d %s", first.Day(), last.Day(), monthName(last.Month()))
+	}
+	return humanDateWithoutYear(first) + " — " + humanDateWithoutYear(last)
+}
+
+func lessonDate(lesson *schedule.Lesson) time.Time {
+	if lesson == nil {
+		return time.Time{}
+	}
+	return lesson.Date
+}
+
+func sameCalendarDate(a, b time.Time) bool {
+	return !a.IsZero() && a.Year() == b.Year() && a.YearDay() == b.YearDay()
+}
+
 func formatFieldTransition(field changeModel.Field, oldLesson, newLesson schedule.Lesson) string {
 	switch field {
 	case changeModel.FieldNumber:
@@ -322,34 +529,14 @@ func formatFieldTransition(field changeModel.Field, oldLesson, newLesson schedul
 	case changeModel.FieldTime:
 		return fmt.Sprintf("⏰ Время: %s–%s → %s–%s", minute(oldLesson.StartMinute), minute(oldLesson.EndMinute), minute(newLesson.StartMinute), minute(newLesson.EndMinute))
 	case changeModel.FieldType:
-		return "🎓 Тип: " + typeName(oldLesson) + " → " + typeName(newLesson)
+		return "🎓 " + typeName(oldLesson) + " → " + typeName(newLesson)
 	case changeModel.FieldTeachers:
-		return "👤 Преподаватель: " + formatTeachers(oldLesson.Teachers) + " → " + formatTeachers(newLesson.Teachers)
+		return "👤 " + formatTeachers(oldLesson.Teachers) + " → " + formatTeachers(newLesson.Teachers)
 	case changeModel.FieldRooms:
-		return "📍 Аудитория: " + formatRooms(oldLesson.Rooms) + " → " + formatRooms(newLesson.Rooms)
+		return "📍 " + formatRoomsPlain(oldLesson.Rooms) + " → " + formatRooms(newLesson.Rooms)
 	default:
 		return html.EscapeString(string(field))
 	}
-}
-
-func formatChangeDate(label string, date time.Time) string {
-	return fmt.Sprintf("📅 <b>%s:</b> %s, %s", label, weekdayTitle(date), humanDate(date))
-}
-
-func fieldName(field changeModel.Field) string {
-	switch field {
-	case changeModel.FieldNumber:
-		return "номер пары"
-	case changeModel.FieldTime:
-		return "время"
-	case changeModel.FieldType:
-		return "тип"
-	case changeModel.FieldTeachers:
-		return "преподаватель"
-	case changeModel.FieldRooms:
-		return "аудитория"
-	}
-	return string(field)
 }
 
 func parseCommand(text, username string) (string, string, bool) {
@@ -597,6 +784,21 @@ func formatRooms(rooms []schedule.Room) string {
 	values := make([]string, len(rooms))
 	for i, room := range rooms {
 		values[i] = formatRoom(room)
+	}
+	return strings.Join(values, ", ")
+}
+
+func formatRoomsPlain(rooms []schedule.Room) string {
+	if len(rooms) == 0 {
+		return "не указана"
+	}
+	values := make([]string, len(rooms))
+	for i, room := range rooms {
+		value := html.EscapeString(room.Name)
+		if room.Building != "" {
+			value += " (" + html.EscapeString(room.Building) + ")"
+		}
+		values[i] = value
 	}
 	return strings.Join(values, ", ")
 }

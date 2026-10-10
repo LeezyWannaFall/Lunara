@@ -160,7 +160,7 @@ func TestChangesHistoryFormattingAndCursor(t *testing.T) {
 		{ID: 1, GroupID: 1306, DetectedAt: time.Now(), WeekStarts: []time.Time{oldLesson.Date}, Kind: changes.FirstPublication},
 	}}
 	messages, next, err := h.Changes(context.Background(), "")
-	if err != nil || next != 2 || len(messages) != 1 || !strings.Contains(messages[0], "Аудитория: 101 (A)") || !strings.Contains(messages[0], "Дата занятия:</b> Понедельник, 28 сентября 2026") || !strings.Contains(messages[0], "<blockquote expandable>◽️ <b>Было</b>") || !strings.Contains(messages[0], "<i>Обнаружено:") {
+	if err != nil || next != 2 || len(messages) != 1 || !strings.Contains(messages[0], "1 изменение · 28 сентября") || !strings.Contains(messages[0], "Изменилась аудитория") || !strings.Contains(messages[0], "📅 Пн, 28 сентября · 2 пара · 10:00–11:30") || !strings.Contains(messages[0], "📍 101 (A) → 202") || strings.Contains(messages[0], "<blockquote expandable>") || !strings.Contains(messages[0], "<i>Обнаружено:") {
 		t.Fatalf("messages=%v next=%d err=%v", messages, next, err)
 	}
 	messages, next, err = h.Changes(context.Background(), "2")
@@ -176,12 +176,12 @@ func TestAddedAndRemovedChangesIncludeLessonDates(t *testing.T) {
 	newLesson.Date = time.Date(2026, time.October, 3, 0, 0, 0, 0, oldLesson.Date.Location())
 
 	removed := formatChange(changes.Change{Kind: changes.Removed, Old: &oldLesson})
-	if !strings.Contains(removed, "Убрано с:</b> Четверг, 1 октября 2026") || !strings.Contains(removed, "<blockquote expandable>") {
+	if !strings.Contains(removed, "📅 Чт, 1 октября") || !strings.Contains(removed, "<i>Подробнее</i>") || !strings.Contains(removed, "<blockquote expandable>") {
 		t.Fatalf("removed change does not contain its date: %s", removed)
 	}
 
 	added := formatChange(changes.Change{Kind: changes.Added, New: &newLesson})
-	if !strings.Contains(added, "Добавлено на:</b> Суббота, 3 октября 2026") || !strings.Contains(added, "<blockquote expandable>") {
+	if !strings.Contains(added, "📅 Сб, 3 октября") || !strings.Contains(added, "<i>Подробнее</i>") || !strings.Contains(added, "<blockquote expandable>") {
 		t.Fatalf("added change does not contain its date: %s", added)
 	}
 }
@@ -227,10 +227,49 @@ func TestModifiedChangeShowsDateSummaryAndExpandableDetails(t *testing.T) {
 	newLesson.Type = schedule.Practice
 	newLesson.Rooms = []schedule.Room{{Name: "414", Building: "Главный корпус"}}
 	message := formatChange(changes.Change{Kind: changes.Modified, Old: &oldLesson, New: &newLesson, Fields: []changes.Field{changes.FieldType, changes.FieldRooms}})
-	for _, want := range []string{"Дата занятия:</b> Понедельник, 28 сентября 2026", "Тип: лекция → практика", "Аудитория: 101 (A)", "→ 414 (Главный корпус)", "<blockquote expandable>"} {
+	for _, want := range []string{"📚 Math &lt;advanced&gt;", "📅 Пн, 28 сентября", "🎓 лекция → практика", "📍 101 (A) → 414 (Главный корпус)", "<i>Подробнее</i>", "<blockquote expandable>👤 A &amp; B</blockquote>"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("%q missing from modified change: %s", want, message)
 		}
+	}
+}
+
+func TestRemovedAndAddedLessonBecomeOneMove(t *testing.T) {
+	oldLesson := published(t).Lessons[0]
+	newLesson := oldLesson
+	newLesson.Date = oldLesson.Date.AddDate(0, 0, 1)
+	n := 5
+	newLesson.Number = &n
+	newLesson.StartMinute, newLesson.EndMinute = 970, 1060
+	set := changes.ChangeSet{DetectedAt: time.Now(), Kind: changes.Regular, Changes: []changes.Change{
+		{Kind: changes.Removed, Old: &oldLesson},
+		{Kind: changes.Added, New: &newLesson},
+	}}
+	messages := formatChangeSet(set, oldLesson.Date.Location())
+	message := strings.Join(messages, "\n")
+	for _, want := range []string{"1 изменение · 28–29 сентября", "Перенесено занятие", "Пн, 28 сентября → Вт, 29 сентября", "2 пара · 10:00–11:30 → 5 пара · 16:10–17:40", "<i>Подробнее</i>"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("%q missing from move: %s", want, message)
+		}
+	}
+	if strings.Contains(message, "Убрано из расписания") || strings.Contains(message, "Добавлено занятие") {
+		t.Fatalf("move was shown as separate changes: %s", message)
+	}
+}
+
+func TestAmbiguousMoveCandidatesRemainSeparate(t *testing.T) {
+	oldLesson := published(t).Lessons[0]
+	newA, newB := oldLesson, oldLesson
+	newA.Date = oldLesson.Date.AddDate(0, 0, 1)
+	newB.Date = oldLesson.Date.AddDate(0, 0, 2)
+	set := changes.ChangeSet{DetectedAt: time.Now(), Kind: changes.Regular, Changes: []changes.Change{
+		{Kind: changes.Removed, Old: &oldLesson},
+		{Kind: changes.Added, New: &newA},
+		{Kind: changes.Added, New: &newB},
+	}}
+	message := strings.Join(formatChangeSet(set, oldLesson.Date.Location()), "\n")
+	if strings.Contains(message, "Перенесено занятие") || !strings.Contains(message, "Убрано из расписания") || strings.Count(message, "Добавлено занятие") != 2 {
+		t.Fatalf("ambiguous move was paired: %s", message)
 	}
 }
 
