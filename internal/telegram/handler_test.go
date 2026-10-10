@@ -160,7 +160,7 @@ func TestChangesHistoryFormattingAndCursor(t *testing.T) {
 		{ID: 1, GroupID: 1306, DetectedAt: time.Now(), WeekStarts: []time.Time{oldLesson.Date}, Kind: changes.FirstPublication},
 	}}
 	messages, next, err := h.Changes(context.Background(), "")
-	if err != nil || next != 2 || len(messages) != 1 || !strings.Contains(messages[0], "1 изменение · 28 сентября") || !strings.Contains(messages[0], "Изменилась аудитория") || !strings.Contains(messages[0], "📅 Пн, 28 сентября · 2 пара · 10:00–11:30") || !strings.Contains(messages[0], "📍 101 (A) → 202") || strings.Contains(messages[0], "<blockquote expandable>") || !strings.Contains(messages[0], "<i>Обнаружено:") {
+	if err != nil || next != 2 || len(messages) != 1 || !strings.Contains(messages[0], "1 изменение · 28 сентября") || !strings.Contains(messages[0], "Изменилась аудитория") || !strings.Contains(messages[0], "📅 Пн, 28 сентября · 2 пара · 10:00–11:30") || !strings.Contains(messages[0], "📍 101 (A) → 202") || !strings.Contains(messages[0], "<blockquote expandable>📅 <b>Понедельник, 28 сентября 2026</b>") || !strings.Contains(messages[0], "👤 A &amp; B") || !strings.Contains(messages[0], "<i>Обнаружено:") {
 		t.Fatalf("messages=%v next=%d err=%v", messages, next, err)
 	}
 	messages, next, err = h.Changes(context.Background(), "2")
@@ -227,7 +227,7 @@ func TestModifiedChangeShowsDateSummaryAndExpandableDetails(t *testing.T) {
 	newLesson.Type = schedule.Practice
 	newLesson.Rooms = []schedule.Room{{Name: "414", Building: "Главный корпус"}}
 	message := formatChange(changes.Change{Kind: changes.Modified, Old: &oldLesson, New: &newLesson, Fields: []changes.Field{changes.FieldType, changes.FieldRooms}})
-	for _, want := range []string{"📚 Math &lt;advanced&gt;", "📅 Пн, 28 сентября", "🎓 лекция → практика", "📍 101 (A) → 414 (Главный корпус)", "<i>Подробнее</i>", "<blockquote expandable>👤 A &amp; B</blockquote>"} {
+	for _, want := range []string{"📚 Math &lt;advanced&gt;", "📅 Пн, 28 сентября", "🎓 лекция → практика", "📍 101 (A) → 414 (Главный корпус)", "<i>Подробнее</i>", "<blockquote expandable>📅 <b>Понедельник, 28 сентября 2026</b>", "2 пара · 10:00–11:30 · практика", "👤 A &amp; B", "📍 414 (Главный корпус)</blockquote>"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("%q missing from modified change: %s", want, message)
 		}

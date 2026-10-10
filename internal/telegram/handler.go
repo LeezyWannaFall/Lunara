@@ -365,11 +365,7 @@ func formatChange(change changeModel.Change) string {
 			result += " · " + lessonSlot(*change.New)
 		}
 		result += "\n" + strings.Join(summary, "\n")
-		if len(change.Fields) > 1 {
-			if details := unchangedDetails(*change.New, change.Fields); details != "" {
-				result += "\n\n" + moreDetails(details)
-			}
-		}
+		result += "\n\n" + moreDetails(formatLessonMetadata(*change.New))
 		return result + mark
 	}
 	return ""
@@ -443,34 +439,7 @@ func shortDate(date time.Time) string {
 }
 
 func formatLessonMetadata(lesson schedule.Lesson) string {
-	values := []string{"🎓 " + typeName(lesson)}
-	if lesson.Subgroup != "" {
-		values = append(values, "👥 "+html.EscapeString(lesson.Subgroup))
-	}
-	if len(lesson.Teachers) > 0 {
-		values = append(values, "👤 "+formatTeachers(lesson.Teachers))
-	}
-	if len(lesson.Rooms) > 0 {
-		values = append(values, "📍 "+formatRooms(lesson.Rooms))
-	}
-	return strings.Join(values, "\n")
-}
-
-func unchangedDetails(lesson schedule.Lesson, changed []changeModel.Field) string {
-	values := []string{}
-	if !containsField(changed, changeModel.FieldType) {
-		values = append(values, "🎓 "+typeName(lesson))
-	}
-	if lesson.Subgroup != "" {
-		values = append(values, "👥 "+html.EscapeString(lesson.Subgroup))
-	}
-	if len(lesson.Teachers) > 0 && !containsField(changed, changeModel.FieldTeachers) {
-		values = append(values, "👤 "+formatTeachers(lesson.Teachers))
-	}
-	if len(lesson.Rooms) > 0 && !containsField(changed, changeModel.FieldRooms) {
-		values = append(values, "📍 "+formatRooms(lesson.Rooms))
-	}
-	return strings.Join(values, "\n")
+	return fmt.Sprintf("📅 <b>%s, %s</b>\n%s", weekdayTitle(lesson.Date), humanDate(lesson.Date), formatLesson(lesson))
 }
 
 func moreDetails(value string) string {
