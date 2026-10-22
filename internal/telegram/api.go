@@ -11,6 +11,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf16"
+
+	xhtml "golang.org/x/net/html"
 )
 
 type Chat struct {
@@ -200,8 +203,23 @@ func (c *Client) SendNotification(ctx context.Context, chatID int64, text string
 	return message.MessageID, err
 }
 
+// MessageLength counts rendered HTML text, excluding tags and link targets.
+// UTF-16 units conservatively account for Telegram entity offsets and emoji.
+func MessageLength(value string) int {
+	tokenizer := xhtml.NewTokenizer(strings.NewReader(value))
+	length := 0
+	for {
+		switch tokenizer.Next() {
+		case xhtml.ErrorToken:
+			return length
+		case xhtml.TextToken:
+			length += len(utf16.Encode([]rune(string(tokenizer.Text()))))
+		}
+	}
+}
+
 func (c *Client) sendMessage(ctx context.Context, chatID, threadID int64, text string, buttons [][]InlineButton) (Message, error) {
-	if text == "" || len([]rune(text)) > 4096 {
+	if text == "" || MessageLength(text) > 4096 {
 		return Message{}, fmt.Errorf("Telegram message length is outside 1..4096")
 	}
 	request := map[string]any{

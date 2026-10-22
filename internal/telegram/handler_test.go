@@ -2,7 +2,9 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -197,8 +199,33 @@ func TestWeekUsesOneCompactExpandableMessage(t *testing.T) {
 	if !strings.Contains(message, "28 сентября — 4 октября 2026") || !strings.Contains(message, "Понедельник, 28 сентября") || !strings.Contains(message, "<blockquote expandable>") {
 		t.Fatalf("week header or expandable days missing: %s", message)
 	}
-	if !strings.Contains(message, "Math &lt;advanced&gt;") || strings.Contains(message, "A &amp; B") || strings.Contains(message, "101 (A)") || strings.Contains(message, "лекция") {
-		t.Fatalf("week is not compact or lost the full subject: %s", message)
+	if !strings.Contains(message, "Math &lt;advanced&gt;") || !strings.Contains(message, "A &amp; B") || !strings.Contains(message, "101 (A)") || !strings.Contains(message, "лекция") {
+		t.Fatalf("week lost lesson details: %s", message)
+	}
+}
+
+func TestFullExampleWeekFitsOneMessage(t *testing.T) {
+	body, err := os.ReadFile("testdata/week_2026-10-26.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var week schedule.Schedule
+	if err := json.Unmarshal(body, &week); err != nil {
+		t.Fatal(err)
+	}
+	h := testHandler(t, map[string]schedule.Schedule{"2026-10-26": week})
+	messages, err := h.week(context.Background(), week.Monday)
+	if err != nil || len(messages) != 1 {
+		t.Fatalf("expected one message, got %d: %v", len(messages), err)
+	}
+	t.Logf("lessons=%d HTML=%d rendered UTF-16=%d limit=4096", len(week.Lessons), len([]rune(messages[0])), MessageLength(messages[0]))
+	if MessageLength(messages[0]) > 4096 {
+		t.Fatal("week exceeds Telegram limit")
+	}
+	for _, lesson := range week.Lessons {
+		if !strings.Contains(messages[0], lesson.Subject) {
+			t.Fatalf("missing subject: %s", lesson.Subject)
+		}
 	}
 }
 

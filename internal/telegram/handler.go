@@ -582,11 +582,15 @@ func (h *Handler) week(ctx context.Context, date time.Time) ([]string, error) {
 		if len(lessons) > 0 {
 			body := make([]string, len(lessons))
 			for i, lesson := range lessons {
-				body[i] = formatWeekLesson(lesson)
+				var previous *schedule.Lesson
+				if i > 0 {
+					previous = &lessons[i-1]
+				}
+				body[i] = formatLessonCompared(lesson, previous)
 			}
 			block := fmt.Sprintf("📅 <b>%s, %s</b>\n%s", weekdayTitle(date), humanDateWithoutYear(date), expandableQuote(strings.Join(body, "\n\n")))
 			candidate := current + "\n\n" + block
-			if len([]rune(candidate)) > 4096 {
+			if MessageLength(candidate) > 4096 {
 				result = append(result, current)
 				current = header + " (продолжение)\n\n" + block
 			} else {
@@ -677,10 +681,6 @@ func formatExpandableLessonChunks(header string, lessons []schedule.Lesson) []st
 		body = candidateBody
 	}
 	return append(chunks, header+"\n\n"+expandableQuote(strings.Join(body, "\n\n")))
-}
-
-func formatWeekLesson(lesson schedule.Lesson) string {
-	return fmt.Sprintf("⏰ <b>%s · %s–%s</b>\n📚 %s", lessonNumber(lesson), minute(lesson.StartMinute), minute(lesson.EndMinute), html.EscapeString(lesson.Subject))
 }
 
 func formatLesson(lesson schedule.Lesson) string {

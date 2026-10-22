@@ -1,0 +1,311 @@
+{
+  "GroupID": 1306,
+  "Monday": "2026-10-26T00:00:00+03:00",
+  "WeekType": "upper",
+  "Lessons": [
+    {
+      "Date": "2026-10-27T00:00:00+03:00",
+      "Number": 4,
+      "StartMinute": 870,
+      "EndMinute": 960,
+      "Subject": "Инженерное обустройство территорий",
+      "Type": "lecture",
+      "RawType": "",
+      "Teachers": [
+        "Снежинская Елена Юрьевна"
+      ],
+      "Rooms": [
+        {
+          "Name": "53",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=437"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-28T00:00:00+03:00",
+      "Number": 4,
+      "StartMinute": 870,
+      "EndMinute": 960,
+      "Subject": "Качество проектирования в геодезическом производстве",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Тринько Александр Игоревич"
+      ],
+      "Rooms": [
+        {
+          "Name": "122",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=332"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-28T00:00:00+03:00",
+      "Number": 5,
+      "StartMinute": 970,
+      "EndMinute": 1060,
+      "Subject": "Инженерное обустройство территорий",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Снежинская Елена Юрьевна"
+      ],
+      "Rooms": [
+        {
+          "Name": "32б",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=436"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-28T00:00:00+03:00",
+      "Number": 6,
+      "StartMinute": 1070,
+      "EndMinute": 1160,
+      "Subject": "Обеспечение качества работ по созданию кадастра",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Проскурин Александр Геннадьевич"
+      ],
+      "Rooms": [
+        {
+          "Name": "42",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=329"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-28T00:00:00+03:00",
+      "Number": 7,
+      "StartMinute": 1170,
+      "EndMinute": 1260,
+      "Subject": "Обеспечение качества работ по созданию кадастра",
+      "Type": "lecture",
+      "RawType": "",
+      "Teachers": [
+        "Проскурин Александр Геннадьевич"
+      ],
+      "Rooms": [
+        {
+          "Name": "42",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=329"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-29T00:00:00+03:00",
+      "Number": 1,
+      "StartMinute": 540,
+      "EndMinute": 630,
+      "Subject": "Основы принципов функционирования современного цифрового и оптико-электронного оборудования",
+      "Type": "lecture",
+      "RawType": "",
+      "Teachers": [
+        "Калугин Вячеслав Денисович"
+      ],
+      "Rooms": [
+        {
+          "Name": "122",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=332"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-29T00:00:00+03:00",
+      "Number": 2,
+      "StartMinute": 640,
+      "EndMinute": 730,
+      "Subject": "Управление развитием регионов",
+      "Type": "lecture",
+      "RawType": "",
+      "Teachers": [
+        "Близнюкова Татьяна Викторовна"
+      ],
+      "Rooms": [
+        {
+          "Name": "414",
+          "Building": "Главный корпус",
+          "MapURL": "https://map.miigaik.ru/#id=394"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-29T00:00:00+03:00",
+      "Number": 3,
+      "StartMinute": 770,
+      "EndMinute": 860,
+      "Subject": "Управление развитием регионов",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Близнюкова Татьяна Викторовна"
+      ],
+      "Rooms": [
+        {
+          "Name": "414",
+          "Building": "Главный корпус",
+          "MapURL": "https://map.miigaik.ru/#id=394"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-29T00:00:00+03:00",
+      "Number": 4,
+      "StartMinute": 870,
+      "EndMinute": 960,
+      "Subject": "Обработка данных лазерного сканирования",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Жидяев Семен Сергеевич"
+      ],
+      "Rooms": [
+        {
+          "Name": "Казакова 13, ауд 42",
+          "Building": "Казакова, 13",
+          "MapURL": "https://map.miigaik.ru/#id=943"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-29T00:00:00+03:00",
+      "Number": 5,
+      "StartMinute": 970,
+      "EndMinute": 1060,
+      "Subject": "Обработка данных лазерного сканирования",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Жидяев Семен Сергеевич"
+      ],
+      "Rooms": [
+        {
+          "Name": "Казакова 13, ауд 42",
+          "Building": "Казакова, 13",
+          "MapURL": "https://map.miigaik.ru/#id=943"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-30T00:00:00+03:00",
+      "Number": 1,
+      "StartMinute": 540,
+      "EndMinute": 630,
+      "Subject": "Основы принципов функционирования современного цифрового и оптико-электронного оборудования",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Калугин Вячеслав Денисович"
+      ],
+      "Rooms": [
+        {
+          "Name": "122",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=332"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-30T00:00:00+03:00",
+      "Number": 2,
+      "StartMinute": 640,
+      "EndMinute": 730,
+      "Subject": "Стратегическое и тактическое управление на предприятии",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Демьяненко Светлана Геннадьевна"
+      ],
+      "Rooms": [
+        {
+          "Name": "6",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=327"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-30T00:00:00+03:00",
+      "Number": 3,
+      "StartMinute": 770,
+      "EndMinute": 860,
+      "Subject": "Исследование социально-экономических процессов",
+      "Type": "practice",
+      "RawType": "",
+      "Teachers": [
+        "Демьяненко Светлана Геннадьевна"
+      ],
+      "Rooms": [
+        {
+          "Name": "6",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=327"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-30T00:00:00+03:00",
+      "Number": 4,
+      "StartMinute": 870,
+      "EndMinute": 960,
+      "Subject": "Исследование социально-экономических процессов",
+      "Type": "lecture",
+      "RawType": "",
+      "Teachers": [
+        "Демьяненко Светлана Геннадьевна"
+      ],
+      "Rooms": [
+        {
+          "Name": "6",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=327"
+        }
+      ],
+      "Subgroup": ""
+    },
+    {
+      "Date": "2026-10-30T00:00:00+03:00",
+      "Number": 5,
+      "StartMinute": 970,
+      "EndMinute": 1060,
+      "Subject": "Стратегическое и тактическое управление на предприятии",
+      "Type": "lecture",
+      "RawType": "",
+      "Teachers": [
+        "Демьяненко Светлана Геннадьевна"
+      ],
+      "Rooms": [
+        {
+          "Name": "6",
+          "Building": "Старый корпус",
+          "MapURL": "https://map.miigaik.ru/#id=327"
+        }
+      ],
+      "Subgroup": ""
+    }
+  ],
+  "Status": "published",
+  "CheckedAt": "2026-10-22T08:10:36.064542903Z",
+  "NormalizationVersion": 2,
+  "Hash": "6664d62ee597d3ec037e6f1b8b4d2241ef03e2f654c2b30ad0f3079ce783ab23"
+}
