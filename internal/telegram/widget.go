@@ -44,18 +44,19 @@ type widgetRow struct {
 	Query string `json:"q"`
 }
 type widgetPage struct {
-	Subtitle string      `json:"u,omitempty"`
-	Tab      string      `json:"s,omitempty"`
-	Query    string      `json:"q"`
-	Title    string      `json:"t"`
-	Body     string      `json:"b,omitempty"`
-	Rows     []widgetRow `json:"r,omitempty"`
-	Previous string      `json:"p,omitempty"`
-	Next     string      `json:"n,omitempty"`
-	Earlier  string      `json:"e,omitempty"`
-	Later    string      `json:"a,omitempty"`
-	Count    string      `json:"c,omitempty"`
-	Error    string      `json:"error,omitempty"`
+	TextQuery string      `json:"x,omitempty"`
+	Subtitle  string      `json:"u,omitempty"`
+	Tab       string      `json:"s,omitempty"`
+	Query     string      `json:"q"`
+	Title     string      `json:"t"`
+	Body      string      `json:"b,omitempty"`
+	Rows      []widgetRow `json:"r,omitempty"`
+	Previous  string      `json:"p,omitempty"`
+	Next      string      `json:"n,omitempty"`
+	Earlier   string      `json:"e,omitempty"`
+	Later     string      `json:"a,omitempty"`
+	Count     string      `json:"c,omitempty"`
+	Error     string      `json:"error,omitempty"`
 }
 
 func (p widgetPage) encode() (string, error) {
@@ -107,37 +108,6 @@ func (c *Client) AnswerWidgetQuery(ctx context.Context, id, data string) error {
 
 func widgetRequest(mode, arg string, page int) string {
 	return fmt.Sprintf("w1|%s|%s|%d", mode, arg, page)
-}
-
-func (h *Handler) widgetCommand(command, argument string) (string, bool) {
-	now := schedule.LocalDate(h.now(), h.calendar.Location)
-	switch command {
-	case "start", "widget", "today":
-		return widgetRequest("day", now.Format(time.DateOnly), 0), true
-	case "tomorrow":
-		return widgetRequest("day", now.AddDate(0, 0, 1).Format(time.DateOnly), 0), true
-	case "week":
-		return widgetRequest("week", schedule.Monday(now, h.calendar.Location).Format(time.DateOnly), 0), true
-	case "nextweek":
-		return widgetRequest("week", schedule.Monday(now, h.calendar.Location).AddDate(0, 0, 7).Format(time.DateOnly), 0), true
-	case "day":
-		date, err := parseUserDate(argument, h.calendar.Location)
-		if err != nil {
-			return "", false
-		}
-		return widgetRequest("day", date.Format(time.DateOnly), 0), true
-	case "next", "exams", "help":
-		return widgetRequest(command, "", 0), true
-	case "changes":
-		if argument != "" {
-			v, err := strconv.ParseInt(argument, 10, 64)
-			if err != nil || v <= 0 {
-				return "", false
-			}
-		}
-		return widgetRequest(command, argument, 0), true
-	}
-	return "", false
 }
 
 func (h *Handler) widgetData(ctx context.Context, query string) (string, error) {
@@ -275,7 +245,11 @@ func (h *Handler) widgetData(ctx context.Context, query string) (string, error) 
 	// Every fragment remains reachable, including unusually long source fields.
 	var pages []string
 	for _, body := range bodies {
-		pages = append(pages, widgetChunks(body, 280)...)
+		if mode == "day" || mode == "next" {
+			pages = append(pages, body)
+		} else {
+			pages = append(pages, widgetChunks(body, 280)...)
+		}
 	}
 	if len(pages) == 0 {
 		pages = []string{"Данных пока нет."}
@@ -291,6 +265,18 @@ func (h *Handler) widgetData(ctx context.Context, query string) (string, error) 
 	}
 	if index+1 < len(pages) {
 		p.Next = widgetRequest(mode, arg, index+1)
+	}
+	if mode == "day" || mode == "next" {
+		p.TextQuery = widgetRequest("text"+mode, arg, 0)
+		if _, err := p.encode(); err != nil {
+			body := p.Body
+			for limit := 90; limit >= 10; limit -= 10 {
+				p.Body = clip(body, limit) + "\n\nПолная карточка не помещается. Нажмите «Текст»."
+				if _, err := p.encode(); err == nil {
+					break
+				}
+			}
+		}
 	}
 	return p.encode()
 }
@@ -374,6 +360,32 @@ func (b *Bot) handleWidget(ctx context.Context, q *WidgetQuery) error {
 	// Never read schedule data for group/inline/forward or another user's chat.
 	if q.Chat == nil || q.Chat.Type != "private" || q.From.ID != q.Chat.ID || q.From.ID <= 0 || q.MessageID <= 0 || q.Type.Type != "data" {
 		return b.answerWidget(ctx, api, q.ID, `{"error":"Откройте виджет в личном чате с ботом."}`)
+	}
+	parts := strings.Split(q.Data, "|")
+	if len(q.Data) <= 64 && len(parts) == 4 && parts[0] == "w1" && parts[3] == "0" && (parts[1] == "textday" || parts[1] == "textnext") {
+		command := "/next"
+		if parts[1] == "textday" {
+			if _, err := time.ParseInLocation(time.DateOnly, parts[2], b.handler.calendar.Location); err != nil {
+				return b.answerWidget(ctx, api, q.ID, `{"error":"Некорректная дата."}`)
+			}
+			command = "/day " + parts[2]
+		} else if parts[2] != "" {
+			return b.answerWidget(ctx, api, q.ID, `{"error":"Некорректный запрос."}`)
+		}
+		textCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		messages, err := b.handler.Handle(textCtx, command, b.username)
+		if err == nil {
+			for _, message := range messages {
+				if err = b.api.SendMessage(textCtx, q.Chat.ID, message); err != nil {
+					break
+				}
+			}
+		}
+		if err != nil {
+			return b.answerWidget(ctx, api, q.ID, `{"error":"Не удалось отправить текст. Попробуйте позже."}`)
+		}
+		return b.answerWidget(ctx, api, q.ID, `{"notice":"Расписание отправлено текстом."}`)
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	data, err := b.handler.widgetData(readCtx, q.Data)

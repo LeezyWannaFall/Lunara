@@ -102,32 +102,24 @@ func (b *Bot) handleUpdate(ctx context.Context, update Update) error {
 	threadID := update.Message.MessageThreadID
 	requestText := update.Message.Text
 	command, argument, directed := parseCommand(requestText, b.username)
-	if chat.Type == "private" && directed {
+	if chat.Type == "private" && directed && command == "widget" {
 		if api, ok := b.api.(WidgetAPI); ok {
-			if query, supported := b.handler.widgetCommand(command, argument); supported {
-				data, err := b.handler.widgetData(ctx, query)
+			data, err := b.handler.widgetData(ctx, widgetRequest("today", "", 0))
+			if err == nil {
+				caption := "Lunara · " + clip(b.handler.groupName, 120) + "\nРасписание с меню. Текстовая версия: /today"
+				err = api.SendWidget(ctx, chat.ID, threadID, data, caption)
 				if err == nil {
-					fallback := command
-					if command == "start" || command == "widget" {
-						fallback = "today"
-					}
-					caption := "Lunara · " + clip(b.handler.groupName, 120) + "\nРасписание с меню. Если виджет не отображается: /text " + fallback
-					if argument != "" && (command == "day" || command == "changes") {
-						caption += " " + argument
-					}
-					err = api.SendWidget(ctx, chat.ID, update.Message.MessageThreadID, data, caption)
-					if err == nil {
-						return nil
-					}
-					var apiErr *APIError
-					if !errors.As(err, &apiErr) || (apiErr.Code != 400 && apiErr.Code != 404) {
-						return err
-					}
+					return nil
 				}
-				b.logger.Warn("Widget unavailable; using text", "error", err)
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) || (apiErr.Code != 400 && apiErr.Code != 404) {
+					return err
+				}
 			}
+			b.logger.Warn("Widget unavailable; using text", "error", err)
 		}
 	}
+
 	if command == "text" && directed {
 		requestText = "/" + strings.TrimPrefix(argument, "/")
 		if argument == "" {
