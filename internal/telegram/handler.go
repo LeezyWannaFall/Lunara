@@ -59,6 +59,8 @@ func (h *Handler) Handle(ctx context.Context, text, botUsername string) ([]strin
 	switch command {
 	case "start", "help":
 		return []string{h.help()}, nil
+	case "widget":
+		return h.day(ctx, schedule.LocalDate(now, h.calendar.Location))
 	case "today":
 		return h.day(ctx, schedule.LocalDate(now, h.calendar.Location))
 	case "tomorrow":
@@ -720,7 +722,7 @@ func formatLessonCompared(lesson schedule.Lesson, previous *schedule.Lesson) str
 }
 
 func (h *Handler) help() string {
-	return fmt.Sprintf("🌙 <b>Lunara</b>\n🎓 %s\n\n📅 /today — расписание на сегодня\n🌤 /tomorrow — расписание на завтра\n🗓 /week — текущая неделя\n⏭ /nextweek — следующая неделя\n⏰ /next — ближайшая пара\n🔎 /day ДД.ММ.ГГГГ — выбранный день\n🔔 /changes — история изменений\n🎓 /exams — экзамены\n❔ /help — эта справка", html.EscapeString(h.groupName))
+	return fmt.Sprintf("🌙 <b>Lunara</b>\n🎓 %s\n\n📅 /today — расписание на сегодня\n🌤 /tomorrow — расписание на завтра\n🗓 /week — текущая неделя\n⏭ /nextweek — следующая неделя\n⏰ /next — ближайшая пара\n🔎 /day ДД.ММ.ГГГГ — выбранный день\n🔔 /changes — история изменений\n🎓 /exams — экзамены\n🌙 /widget — меню расписания в личке\n📄 /text week — текстовая версия\n❔ /help — эта справка", html.EscapeString(h.groupName))
 }
 
 func formatRoom(room schedule.Room) string {
