@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -82,6 +83,9 @@ func (b *Bot) Run(ctx context.Context) error {
 }
 
 func (b *Bot) handleUpdate(ctx context.Context, update Update) error {
+	if update.WidgetQuery != nil {
+		return b.handleWidget(ctx, update.WidgetQuery)
+	}
 	if update.CallbackQuery != nil {
 		return b.handleCallback(ctx, update.CallbackQuery)
 	}
@@ -95,15 +99,47 @@ func (b *Bot) handleUpdate(ctx context.Context, update Update) error {
 	if chat.Type != "private" && b.threadID > 0 && update.Message.MessageThreadID != b.threadID {
 		return nil
 	}
-	threadID := int64(0)
-	if chat.Type != "private" {
-		threadID = update.Message.MessageThreadID
+	threadID := update.Message.MessageThreadID
+	requestText := update.Message.Text
+	command, argument, directed := parseCommand(requestText, b.username)
+	if chat.Type == "private" && directed {
+		if api, ok := b.api.(WidgetAPI); ok {
+			if query, supported := b.handler.widgetCommand(command, argument); supported {
+				data, err := b.handler.widgetData(ctx, query)
+				if err == nil {
+					fallback := command
+					if command == "start" || command == "widget" {
+						fallback = "today"
+					}
+					caption := "Lunara · " + clip(b.handler.groupName, 120) + "\nРасписание с меню. Если виджет не отображается: /text " + fallback
+					if argument != "" && (command == "day" || command == "changes") {
+						caption += " " + argument
+					}
+					err = api.SendWidget(ctx, chat.ID, update.Message.MessageThreadID, data, caption)
+					if err == nil {
+						return nil
+					}
+					var apiErr *APIError
+					if !errors.As(err, &apiErr) || (apiErr.Code != 400 && apiErr.Code != 404) {
+						return err
+					}
+				}
+				b.logger.Warn("Widget unavailable; using text", "error", err)
+			}
+		}
 	}
-	command, argument, directed := parseCommand(update.Message.Text, b.username)
+	if command == "text" && directed {
+		requestText = "/" + strings.TrimPrefix(argument, "/")
+		if argument == "" {
+			requestText = "/today"
+		}
+		command, argument, directed = parseCommand(requestText, b.username)
+	}
+
 	if command == "changes" && directed {
 		return b.sendChanges(ctx, chat.ID, threadID, argument)
 	}
-	messages, err := b.handler.Handle(ctx, update.Message.Text, b.username)
+	messages, err := b.handler.Handle(ctx, requestText, b.username)
 	if err != nil {
 		b.logger.Error("Telegram command failed", "error", err, "chat_id", chat.ID)
 		return b.api.SendMessageToThread(ctx, chat.ID, threadID, "Не удалось прочитать расписание. Попробуйте ещё раз позже.")

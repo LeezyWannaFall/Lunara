@@ -30,6 +30,7 @@ type Message struct {
 
 type Update struct {
 	ID            int64          `json:"update_id"`
+	WidgetQuery   *WidgetQuery   `json:"widget_query,omitempty"`
 	Message       *Message       `json:"message,omitempty"`
 	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
 }
@@ -177,7 +178,7 @@ func (c *Client) GetUpdates(ctx context.Context, offset int64) ([]Update, error)
 	var updates []Update
 	err := c.call(ctx, "getUpdates", map[string]any{
 		"offset": offset, "limit": 100, "timeout": 30,
-		"allowed_updates": []string{"message", "callback_query"},
+		"allowed_updates": []string{"message", "callback_query", "widget_query"},
 	}, &updates)
 	return updates, err
 }

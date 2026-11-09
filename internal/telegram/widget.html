@@ -1,0 +1,43 @@
+<style>
+*{box-sizing:border-box}body{margin:0;padding:14px;font-family:system-ui,sans-serif;font-size:14px;line-height:1.4;color:var(--tg-theme-text-color,#192235)}header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}strong{font-size:18px;letter-spacing:-.5px}.brand{color:var(--tg-theme-accent-text-color,#5265c8)}small,#status,#count{color:var(--tg-theme-hint-color,#687386);font-size:12px}button{border:0;border-radius:9px;padding:8px 6px;min-height:34px;font:inherit;color:var(--tg-theme-text-color,#192235);background:var(--tg-theme-secondary-bg-color,#eef1f7);cursor:pointer}button:active{background:var(--tg-theme-button-color,#5265c8);color:var(--tg-theme-button-text-color,#fff)}button[disabled]{color:var(--tg-theme-hint-color,#687386);cursor:default}.tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.tabs button{font-size:12px;min-width:0;overflow-wrap:anywhere}.tabs .selected{background:var(--tg-theme-button-color,#5265c8);color:var(--tg-theme-button-text-color,#fff)}h2{font-size:16px;line-height:1.3;margin:14px 0 9px}#updated{font-size:11px;color:var(--tg-theme-hint-color,#687386);margin-bottom:8px}#body{white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;font-size:13px;line-height:18px;margin:0 0 10px}#rows{display:grid;gap:4px}#rows button{text-align:left;padding:5px 10px;min-height:28px;font-size:13px}.pager,.dates{display:flex;align-items:center;gap:6px;margin-top:8px}.pager button,.dates button{flex:1;font-size:12px}#count{min-width:42px;text-align:center}#status{height:32px;line-height:16px;margin-top:8px;overflow-wrap:anywhere}footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}footer button{font-size:12px;background:transparent;padding:4px;min-height:28px}[hidden]{display:none!important}
+@media(max-width:260px){body{padding:10px}.tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.tabs button{min-height:30px;font-size:11px;line-height:1.2}h2{font-size:14px;margin-top:10px}#rows button{padding:4px 8px;min-height:26px}.dates button{padding:6px 3px}}
+</style>
+<header><strong><span class="brand">☾</span> Lunara</strong><small>Расписание</small></header>
+<nav class="tabs" id="tabs"><button data-mode="today">Сегодня</button><button data-mode="tomorrow">Завтра</button><button data-mode="week">Неделя</button><button data-mode="next">Ближайшая</button><button data-mode="exams">Экзамены</button><button data-mode="changes">Изменения</button></nav>
+<h2 id="title">Расписание</h2><div id="updated"></div><div id="body"></div><div id="rows"></div>
+<div class="pager" id="pager"><button id="prev">← Назад</button><span id="count"></span><button id="next">Далее →</button></div>
+<div class="dates" id="dates"><button id="earlier">←</button><button id="later">→</button></div>
+<div id="status"></div><footer><button id="help">Справка</button><button id="refresh">↻ Обновить</button></footer>
+<script>
+(function(){
+const w=window.TelegramWidget,$=id=>document.getElementById(id);let state={},busy=false,parts=[],part=0;
+function draw(p){
+ state=p;$("title").textContent=p.t||"Расписание";$("updated").textContent=p.u||"";$("updated").hidden=!p.u;$("body").textContent=p.b||"";$("rows").textContent="";
+ (p.r||[]).forEach(r=>{const b=document.createElement("button");b.textContent=r.l;b.onclick=()=>ask(r.q);$("rows").appendChild(b)});
+ $("pager").hidden=false;$("count").textContent=p.c||"";
+ $("dates").hidden=!p.e&&!p.a;$("earlier").hidden=!p.e;$("later").hidden=!p.a;
+ const mode=(p.q||"").split("|")[1];$("earlier").textContent=mode==="week"?"← Неделя":"← День";$("later").textContent=mode==="changes"?"Ранее":mode==="week"?"Неделя →":"День →";
+ document.querySelectorAll("[data-mode]").forEach(b=>{b.className=b.dataset.mode===(p.s||mode)?"selected":""});
+ const box=$("body"),budget=Math.max(40,560-document.body.getBoundingClientRect().height+box.getBoundingClientRect().height);let rest=p.b||"";parts=[];part=0;
+ while(rest){box.textContent=rest;let end=rest.length;if(box.getBoundingClientRect().height>budget){let lo=1,hi=end;while(lo<hi){const mid=Math.ceil((lo+hi)/2);box.textContent=rest.slice(0,mid);if(box.getBoundingClientRect().height<=budget)lo=mid;else hi=mid-1}end=lo;if(end<rest.length&&rest.charCodeAt(end)>=56320&&rest.charCodeAt(end)<=57343)end--;const space=Math.max(rest.lastIndexOf(" ",end-1),rest.lastIndexOf("\n",end-1));if(space>end/2)end=space+1}parts.push(rest.slice(0,end));rest=rest.slice(end)}
+ if(!parts.length)parts=[""];slice();
+}
+function slice(){
+ $("body").textContent=parts[part];$("pager").hidden=parts.length===1&&!state.p&&!state.n;$("prev").disabled=part===0&&!state.p;$("next").disabled=part===parts.length-1&&!state.n;$("count").textContent=(state.c||"")+(parts.length>1?" · "+(part+1)+"/"+parts.length:"");
+}
+function ask(q){
+ if(busy||!q)return;if(!w){$("status").textContent="Откройте виджет в Telegram";return}
+ busy=true;$("status").textContent="Загружаем…";
+ try{Promise.resolve(w.request(q)).then(a=>{
+  const p=JSON.parse(a.result);if(p.error){$("status").textContent=p.error;return}
+  draw(p);try{localStorage.setItem("query",p.q)}catch(e){}$("status").textContent="Обновлено";
+ }).catch(fail).finally(()=>{busy=false})}catch(e){busy=false;fail(e)}
+}
+function fail(e){const code=e&&e.code;$("status").textContent=code==="RATE_LIMITED"?"Подождите 5 секунд и повторите.":code==="TIMEOUT"?"Нет ответа. Нажмите «Обновить».":code==="BUSY"?"Дождитесь ответа.":code==="NOT_ALLOWED"?"Откройте новый виджет: /widget.":"Ошибка. Нажмите «Обновить»."}
+$("prev").onclick=()=>{if(busy)return;if(part>0){part--;slice()}else ask(state.p)};$("next").onclick=()=>{if(busy)return;if(part+1<parts.length){part++;slice()}else ask(state.n)};$("earlier").onclick=()=>ask(state.e);$("later").onclick=()=>ask(state.a);
+$("refresh").onclick=()=>ask(state.q);$("help").onclick=()=>ask("w1|help||0");document.querySelectorAll("[data-mode]").forEach(b=>{b.onclick=()=>ask("w1|"+b.dataset.mode+"||0")});
+try{draw(JSON.parse(w&&w.chatData||'{}'))}catch(e){$("status").textContent="Откройте новый виджет: /widget"}
+let width=document.body.clientWidth;new ResizeObserver(()=>{const next=document.body.clientWidth;if(next!==width){width=next;draw(state)}}).observe(document.body);
+if(w){w.ready();let q=state.q;try{q=localStorage.getItem("query")||q}catch(e){}if(q)ask(q)}
+})();
+</script>
