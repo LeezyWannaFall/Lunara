@@ -7,7 +7,7 @@
 <h2 id="title">Расписание</h2><div id="updated"></div><div id="body"></div><div id="rows"></div>
 <div class="pager" id="pager"><button id="prev">← Назад</button><span id="count"></span><button id="next">Далее →</button></div>
 <div class="dates" id="dates"><button id="earlier">←</button><button id="later">→</button></div>
-<div id="status"></div><footer><button id="help">Справка</button><button id="refresh">↻ Обновить</button></footer>
+<div id="status"></div><footer><button id="help">Справка</button><button id="text" hidden>Текст</button><button id="refresh">↻ Обновить</button></footer>
 <script>
 (function(){
 const w=window.TelegramWidget,$=id=>document.getElementById(id);let state={},busy=false,parts=[],part=0;
@@ -15,13 +15,14 @@ function setTheme(light){document.body.classList.toggle("light",light);$("theme"
 try{setTheme(localStorage.getItem("theme")==="light")}catch(e){setTheme(false)}
 $("theme").onclick=()=>{const light=!document.body.classList.contains("light");setTheme(light);try{localStorage.setItem("theme",light?"light":"dark")}catch(e){}};
 function draw(p){
- state=p;$("title").textContent=p.t||"Расписание";$("updated").textContent=p.u||"";$("updated").hidden=!p.u;$("body").textContent=p.b||"";$("rows").textContent="";
+ state=p;$("text").hidden=!p.x;$("body").style.fontSize="13px";$("body").style.lineHeight="18px";$("title").textContent=p.t||"Расписание";$("updated").textContent=p.u||"";$("updated").hidden=!p.u;$("body").textContent=p.b||"";$("rows").textContent="";
  (p.r||[]).forEach(r=>{const b=document.createElement("button");b.textContent=r.l;b.onclick=()=>ask(r.q);$("rows").appendChild(b)});
  $("pager").hidden=false;$("count").textContent=p.c||"";
  $("dates").hidden=!p.e&&!p.a;$("earlier").hidden=!p.e;$("later").hidden=!p.a;
  const mode=(p.q||"").split("|")[1];$("earlier").textContent=mode==="week"?"← Неделя":"← День";$("later").textContent=mode==="changes"?"Ранее":mode==="week"?"Неделя →":"День →";
  document.querySelectorAll("[data-mode]").forEach(b=>{b.className=b.dataset.mode===(p.s||mode)?"selected":""});
  const box=$("body"),budget=Math.max(40,560-document.body.getBoundingClientRect().height+box.getBoundingClientRect().height);let rest=p.b||"";parts=[];part=0;
+ if(p.x){box.textContent=rest;if(box.getBoundingClientRect().height>budget){box.style.fontSize="12px";box.style.lineHeight="16px"}if(box.getBoundingClientRect().height>budget){rest=Array.from(rest).slice(0,90).join("")+"…\n\nПолная карточка не помещается. Нажмите «Текст»."}parts=[rest];slice();return}
  while(rest){box.textContent=rest;let end=rest.length;if(box.getBoundingClientRect().height>budget){let lo=1,hi=end;while(lo<hi){const mid=Math.ceil((lo+hi)/2);box.textContent=rest.slice(0,mid);if(box.getBoundingClientRect().height<=budget)lo=mid;else hi=mid-1}end=lo;if(end<rest.length&&rest.charCodeAt(end)>=56320&&rest.charCodeAt(end)<=57343)end--;const space=Math.max(rest.lastIndexOf(" ",end-1),rest.lastIndexOf("\n",end-1));if(space>end/2)end=space+1}parts.push(rest.slice(0,end));rest=rest.slice(end)}
  if(!parts.length)parts=[""];slice();
 }
@@ -32,13 +33,13 @@ function ask(q){
  if(busy||!q)return;if(!w){$("status").textContent="Откройте виджет в Telegram";return}
  busy=true;$("status").textContent="Загружаем…";
  try{Promise.resolve(w.request(q)).then(a=>{
-  const p=JSON.parse(a.result);if(p.error){$("status").textContent=p.error;return}
+  const p=JSON.parse(a.result);if(p.notice){$("status").textContent=p.notice;return}if(p.error){$("status").textContent=p.error;return}
   draw(p);try{localStorage.setItem("query",p.q)}catch(e){}$("status").textContent="Обновлено";
  }).catch(fail).finally(()=>{busy=false})}catch(e){busy=false;fail(e)}
 }
 function fail(e){const code=e&&e.code;$("status").textContent=code==="RATE_LIMITED"?"Подождите 5 секунд и повторите.":code==="TIMEOUT"?"Нет ответа. Нажмите «Обновить».":code==="BUSY"?"Дождитесь ответа.":code==="NOT_ALLOWED"?"Откройте новый виджет: /widget.":"Ошибка. Нажмите «Обновить»."}
 $("prev").onclick=()=>{if(busy)return;if(part>0){part--;slice()}else ask(state.p)};$("next").onclick=()=>{if(busy)return;if(part+1<parts.length){part++;slice()}else ask(state.n)};$("earlier").onclick=()=>ask(state.e);$("later").onclick=()=>ask(state.a);
-$("refresh").onclick=()=>ask(state.q);$("help").onclick=()=>ask("w1|help||0");document.querySelectorAll("[data-mode]").forEach(b=>{b.onclick=()=>ask("w1|"+b.dataset.mode+"||0")});
+$("text").onclick=()=>ask(state.x);$("refresh").onclick=()=>ask(state.q);$("help").onclick=()=>ask("w1|help||0");document.querySelectorAll("[data-mode]").forEach(b=>{b.onclick=()=>ask("w1|"+b.dataset.mode+"||0")});
 try{draw(JSON.parse(w&&w.chatData||'{}'))}catch(e){$("status").textContent="Откройте новый виджет: /widget"}
 let width=document.body.clientWidth;new ResizeObserver(()=>{const next=document.body.clientWidth;if(next!==width){width=next;draw(state)}}).observe(document.body);
 if(w){w.ready();let q=state.q;try{q=localStorage.getItem("query")||q}catch(e){}if(q)ask(q)}

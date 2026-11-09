@@ -22,27 +22,19 @@ func TestWidgetLimitsAndNavigation(t *testing.T) {
 	}
 	w := published(t)
 	h := testHandler(t, map[string]schedule.Schedule{"2026-09-28": w})
-	for _, command := range []string{"start", "widget", "today", "tomorrow", "week", "nextweek", "day", "next", "exams", "changes", "help"} {
-		arg := ""
-		if command == "day" {
-			arg = "28.09.2026"
-		}
-		q, ok := h.widgetCommand(command, arg)
-		if !ok {
-			t.Fatal(command)
-		}
+	for _, q := range []string{"w1|today||0", "w1|tomorrow||0", "w1|week||0", "w1|nextweek||0", "w1|day|2026-09-28|0", "w1|next||0", "w1|exams||0", "w1|changes||0", "w1|help||0"} {
 		data, err := h.widgetData(context.Background(), q)
 		if err != nil {
-			t.Fatalf("%s: %v", command, err)
+			t.Fatalf("%s: %v", q, err)
 		}
 		var p widgetPage
 		if err = json.Unmarshal([]byte(data), &p); err != nil {
 			t.Fatal(err)
 		}
 		if p.Title == "" || len(data) > 1024 {
-			t.Fatalf("invalid %s: %s", command, data)
+			t.Fatalf("invalid %s: %s", q, data)
 		}
-		if command == "week" {
+		if q == "w1|week||0" {
 			if len(p.Rows) != 7 {
 				t.Fatal(p)
 			}
@@ -70,26 +62,14 @@ func TestWidgetPaginationPreservesLongSourceText(t *testing.T) {
 	w.Lessons = w.Lessons[:1]
 	w.Lessons[0].Subject = strings.Repeat("Длинное название <script> & ", 100)
 	h := testHandler(t, map[string]schedule.Schedule{"2026-09-28": w})
-	q, _ := h.widgetCommand("today", "")
-	var got strings.Builder
-	for pages := 0; q != ""; pages++ {
-		if pages > 100 {
-			t.Fatal("pagination loop")
-		}
-		data, err := h.widgetData(context.Background(), q)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var p widgetPage
-		json.Unmarshal([]byte(data), &p)
-		got.WriteString(p.Body)
-		if len(data) > 1024 || !utf8.ValidString(data) {
-			t.Fatal("invalid data")
-		}
-		q = p.Next
+	data, err := h.widgetData(context.Background(), "w1|day|2026-09-28|0")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got.String() != widgetPlain(formatLesson(w.Lessons[0])) {
-		t.Fatal("lost text during pagination")
+	var page widgetPage
+	json.Unmarshal([]byte(data), &page)
+	if page.Count != "1 / 1" || page.Next != "" || page.TextQuery != "w1|textday|2026-09-28|0" || !strings.Contains(page.Body, "Нажмите «Текст»") {
+		t.Fatalf("oversized lesson should not become fragment pages: %+v", page)
 	}
 	for _, value := range []string{strings.Repeat("\n", 1000), strings.Repeat("😀", 1000), strings.Repeat("a", 1000), strings.Repeat("<>&\x01\\\"", 500)} {
 		chunks := widgetChunks(value, 280)
@@ -141,15 +121,15 @@ func TestWidgetRoutingAndFallback(t *testing.T) {
 		err                  error
 		widgets, texts       int
 	}{
-		{"private", "/week@LunaraBot", "private", 10, 0, nil, 1, 0},
-		{"private topic", "/today", "private", 10, 23, nil, 1, 0},
+		{"private", "/widget@LunaraBot", "private", 10, 0, nil, 1, 0},
+		{"private topic", "/widget", "private", 10, 23, nil, 1, 0},
 		{"group", "/week", "supergroup", -100, 77, nil, 0, 1},
 		{"wrong topic", "/week", "supergroup", -100, 78, nil, 0, 0},
 		{"other bot", "/week@OtherBot", "private", 10, 0, nil, 0, 0},
 		{"invalid date", "/day oops", "private", 10, 0, nil, 0, 1},
 		{"explicit text", "/text week", "private", 10, 0, nil, 0, 1},
-		{"unsupported", "/week", "private", 10, 0, &APIError{Code: 404}, 1, 1},
-		{"bad request", "/week", "private", 10, 0, &APIError{Code: 400}, 1, 1},
+		{"unsupported", "/widget", "private", 10, 0, &APIError{Code: 404}, 1, 1},
+		{"bad request", "/widget", "private", 10, 0, &APIError{Code: 400}, 1, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			a := &widgetFakeAPI{sendErr: tc.err}
@@ -166,7 +146,7 @@ func TestWidgetRoutingAndFallback(t *testing.T) {
 	for _, err := range []error{&APIError{Code: 429}, &RequestError{Method: "sendWidget"}} {
 		a := &widgetFakeAPI{sendErr: err}
 		b := widgetBot(t, a)
-		if b.handleUpdate(context.Background(), Update{Message: &Message{Chat: Chat{ID: 10, Type: "private"}, Text: "/week"}}) == nil || len(a.sent) != 0 {
+		if b.handleUpdate(context.Background(), Update{Message: &Message{Chat: Chat{ID: 10, Type: "private"}, Text: "/widget"}}) == nil || len(a.sent) != 0 {
 			t.Fatal("ambiguous failure must not send duplicate text")
 		}
 	}
@@ -283,7 +263,7 @@ func TestWidgetUIFixture(t *testing.T) {
 	w := published(t)
 	w.CheckedAt = w.Monday.Add(9*time.Hour + 42*time.Minute)
 	w.Lessons[0].Subject = "Инженерное обустройство территорий"
-	w.Lessons[0].Teachers = []string{"Снежинская Елена Юрьевна"}
+	w.Lessons[0].Teachers = []string{"Снежинская Елена Юрьевна", "Иванов Александр Сергеевич"}
 	w.Lessons[0].Rooms = []schedule.Room{{Name: "53", Building: "Старый корпус"}}
 	w.Lessons[1].Subject = "Геодезия"
 	h := testHandler(t, map[string]schedule.Schedule{"2026-09-28": w})
@@ -318,5 +298,66 @@ func TestWidgetUIFixture(t *testing.T) {
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOrdinaryCommandsStayText(t *testing.T) {
+	for _, command := range []string{"/start", "/help", "/today", "/tomorrow", "/week", "/nextweek", "/next", "/day 28.09.2026", "/exams", "/changes"} {
+		a := &widgetFakeAPI{}
+		b := widgetBot(t, a)
+		if err := b.handleUpdate(context.Background(), Update{Message: &Message{Chat: Chat{ID: 10, Type: "private"}, Text: command}}); err != nil {
+			t.Fatal(err)
+		}
+		if a.widgets != 0 || len(a.sent) == 0 {
+			t.Fatalf("%s: widget=%d text=%d", command, a.widgets, len(a.sent))
+		}
+	}
+}
+func TestWholeLessonPage(t *testing.T) {
+	w := published(t)
+	w.Lessons = w.Lessons[:1]
+	w.Lessons[0].Subject = "Инженерное обустройство территорий и планирование городской среды"
+	w.Lessons[0].Teachers = []string{"Снежинская Елена Юрьевна", "Иванов Александр Сергеевич"}
+	w.Lessons[0].Rooms = []schedule.Room{{Name: "53", Building: "Старый корпус"}}
+	body := widgetPlain(formatLesson(w.Lessons[0]))
+	if len(body) <= 280 {
+		t.Fatal("fixture must reproduce the old split")
+	}
+	h := testHandler(t, map[string]schedule.Schedule{"2026-09-28": w})
+	data, err := h.widgetData(context.Background(), "w1|day|2026-09-28|0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p widgetPage
+	json.Unmarshal([]byte(data), &p)
+	if p.Body != body || p.Count != "1 / 1" || p.Next != "" {
+		t.Fatalf("lesson split: %+v", p)
+	}
+	w.Lessons = append(w.Lessons, w.Lessons[0])
+	h.repo = fakeRepo{weeks: map[string]schedule.Schedule{"2026-09-28": w}}
+	data, err = h.widgetData(context.Background(), "w1|day|2026-09-28|0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	json.Unmarshal([]byte(data), &p)
+	if p.Count != "1 / 2" || p.Body != body {
+		t.Fatalf("pagination should count lessons: %+v", p)
+	}
+}
+func TestWidgetTextAction(t *testing.T) {
+	for _, chat := range []Chat{{ID: 10, Type: "private"}, {ID: -100, Type: "supergroup"}} {
+		a := &widgetFakeAPI{}
+		b := widgetBot(t, a)
+		q := &WidgetQuery{ID: "q", Chat: &chat, From: User{ID: 10}, MessageID: 1, Data: "w1|textday|2026-09-28|0"}
+		q.Type.Type = "data"
+		if err := b.handleWidget(context.Background(), q); err != nil {
+			t.Fatal(err)
+		}
+		if (len(a.sent) > 0) != (chat.Type == "private") {
+			t.Fatal("incorrect text action access")
+		}
+		if chat.Type == "private" && !strings.Contains(a.data, "notice") {
+			t.Fatal(a.data)
+		}
 	}
 }
